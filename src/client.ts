@@ -77,7 +77,7 @@ export class A2AClient {
     const { factory } = this.buildFactory(peer);
 
     // createFromUrl resolves the card internally
-    const client = await factory.createFromUrl(baseUrl, path);
+    await factory.createFromUrl(baseUrl, path);
 
     // Re-fetch the card for the return value (lightweight)
     const authHandler = createAuthHandler(peer);
