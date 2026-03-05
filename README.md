@@ -146,29 +146,20 @@ Each server generates its own security token and shares it with the other.
 
 ## Sending Messages via A2A
 
-### From the command line (curl)
+### From the command line
 
 ```bash
-curl -s -X POST http://<PEER_IP>:18800/a2a/jsonrpc \
-  -H "Authorization: Bearer <PEER_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "message/send",
-    "params": {
-      "message": {
-        "messageId": "msg-'$(date +%s)'",
-        "role": "user",
-        "parts": [{"kind": "text", "text": "Hello from Server A!"}]
-      }
-    },
-    "id": "1"
-  }'
+node <PLUGIN_PATH>/skill/scripts/a2a-send.mjs \
+  --peer-url http://<PEER_IP>:18800 \
+  --token <PEER_TOKEN> \
+  --message "Hello from Server A!"
 ```
+
+The script uses `@a2a-js/sdk` ClientFactory to auto-discover the Agent Card and select the best transport.
 
 ### From your OpenClaw agent
 
-Add this to your agent's `TOOLS.md` so it knows how to call peers:
+Add this to your agent's `TOOLS.md` so it knows how to call peers (see `skill/references/tools-md-template.md` for the full template):
 
 ```markdown
 ## A2A Gateway (Agent-to-Agent Communication)
@@ -177,35 +168,22 @@ You have an A2A Gateway plugin running on port 18800.
 
 ### Peers
 
-| Peer | IP | A2A Endpoint | Auth Token |
-|------|-----|--------------|------------|
-| PeerName | <PEER_IP> | http://<PEER_IP>:18800/a2a/jsonrpc | <PEER_TOKEN> |
+| Peer | IP | Auth Token |
+|------|-----|------------|
+| PeerName | <PEER_IP> | <PEER_TOKEN> |
 
 ### How to send a message to a peer
 
 Use the exec tool to run:
 
 \```bash
-curl -s -X POST http://<PEER_IP>:18800/a2a/jsonrpc \
-  -H "Authorization: Bearer <PEER_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "message/send",
-    "params": {
-      "message": {
-        "messageId": "msg-<unique-id>",
-        "role": "user",
-        "parts": [{"kind": "text", "text": "YOUR MESSAGE HERE"}]
-      }
-    },
-    "id": "1"
-  }'
+node <PLUGIN_PATH>/skill/scripts/a2a-send.mjs \
+  --peer-url http://<PEER_IP>:18800 \
+  --token <PEER_TOKEN> \
+  --message "YOUR MESSAGE HERE"
 \```
 
-### Parsing the response
-
-The peer agent's reply is at: `result.status.message.parts[0].text`
+The script auto-discovers the Agent Card, handles auth, and prints the peer's response text.
 ```
 
 Then users can say things like:
@@ -294,17 +272,17 @@ openclaw gateway restart
 ### Verify both directions
 
 ```bash
-# From Server A → test Server B
+# From Server A → test Server B's Agent Card
 curl -s http://100.10.10.2:18800/.well-known/agent.json
 
-# From Server B → test Server A
+# From Server B → test Server A's Agent Card
 curl -s http://100.10.10.1:18800/.well-known/agent.json
 
-# Send a message A → B
-curl -s -X POST http://100.10.10.2:18800/a2a/jsonrpc \
-  -H "Authorization: Bearer <B_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"message/send","params":{"message":{"messageId":"test-1","role":"user","parts":[{"kind":"text","text":"Hello from Server A!"}]}},"id":"1"}'
+# Send a message A → B (using SDK script)
+node <PLUGIN_PATH>/skill/scripts/a2a-send.mjs \
+  --peer-url http://100.10.10.2:18800 \
+  --token <B_TOKEN> \
+  --message "Hello from Server A!"
 ```
 
 ## Configuration Reference

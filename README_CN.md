@@ -146,29 +146,20 @@ openclaw gateway restart
 
 ## 通过 A2A 发送消息
 
-### 命令行方式 (curl)
+### 命令行方式
 
 ```bash
-curl -s -X POST http://<对等方IP>:18800/a2a/jsonrpc \
-  -H "Authorization: Bearer <对等方Token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "message/send",
-    "params": {
-      "message": {
-        "messageId": "msg-'$(date +%s)'",
-        "role": "user",
-        "parts": [{"kind": "text", "text": "你好，来自服务器A！"}]
-      }
-    },
-    "id": "1"
-  }'
+node <插件路径>/skill/scripts/a2a-send.mjs \
+  --peer-url http://<对等方IP>:18800 \
+  --token <对等方Token> \
+  --message "你好，来自服务器A！"
 ```
+
+脚本使用 `@a2a-js/sdk` ClientFactory 自动发现 Agent Card 并选择最佳传输协议。
 
 ### 让你的 Agent 知道如何调用（TOOLS.md 模板）
 
-在 Agent 的 `TOOLS.md` 中添加以下内容，Agent 就能自主调用 A2A：
+在 Agent 的 `TOOLS.md` 中添加以下内容（完整模板见 `skill/references/tools-md-template.md`），Agent 就能自主调用 A2A：
 
 ```markdown
 ## A2A Gateway（Agent 间通信）
@@ -177,35 +168,22 @@ curl -s -X POST http://<对等方IP>:18800/a2a/jsonrpc \
 
 ### 对等方列表
 
-| 对等方 | IP | A2A 端点 | 认证 Token |
-|--------|-----|----------|------------|
-| PeerName | <PEER_IP> | http://<PEER_IP>:18800/a2a/jsonrpc | <PEER_TOKEN> |
+| 对等方 | IP | 认证 Token |
+|--------|-----|------------|
+| PeerName | <PEER_IP> | <PEER_TOKEN> |
 
 ### 发送消息给对等方
 
 当用户说 "通过 A2A 让 PeerName 做 xxx" 或 "发给 PeerName：xxx" 时，用 exec 工具执行：
 
 \```bash
-curl -s -X POST http://<PEER_IP>:18800/a2a/jsonrpc \
-  -H "Authorization: Bearer <PEER_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "message/send",
-    "params": {
-      "message": {
-        "messageId": "msg-<唯一ID>",
-        "role": "user",
-        "parts": [{"kind": "text", "text": "你的消息内容"}]
-      }
-    },
-    "id": "1"
-  }'
+node <插件路径>/skill/scripts/a2a-send.mjs \
+  --peer-url http://<PEER_IP>:18800 \
+  --token <PEER_TOKEN> \
+  --message "你的消息内容"
 \```
 
-### 解析响应
-
-对等方 Agent 的回复在：`result.status.message.parts[0].text`
+脚本自动发现 Agent Card、处理认证、并输出对方的回复文本。
 ```
 
 配好后用户就可以这样说：
@@ -294,17 +272,17 @@ openclaw gateway restart
 ### 双向验证
 
 ```bash
-# 服务器 A → 测试 B
+# 服务器 A → 测试 B 的 Agent Card
 curl -s http://100.10.10.2:18800/.well-known/agent.json
 
-# 服务器 B → 测试 A
+# 服务器 B → 测试 A 的 Agent Card
 curl -s http://100.10.10.1:18800/.well-known/agent.json
 
-# 发消息 A → B
-curl -s -X POST http://100.10.10.2:18800/a2a/jsonrpc \
-  -H "Authorization: Bearer <B_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"message/send","params":{"message":{"messageId":"test-1","role":"user","parts":[{"kind":"text","text":"你好，来自服务器A！"}]}},"id":"1"}'
+# 发消息 A → B（使用 SDK 脚本）
+node <插件路径>/skill/scripts/a2a-send.mjs \
+  --peer-url http://100.10.10.2:18800 \
+  --token <B_TOKEN> \
+  --message "你好，来自服务器A！"
 ```
 
 ## 配置参考
