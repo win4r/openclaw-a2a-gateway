@@ -627,7 +627,6 @@ export class OpenClawAgentExecutor implements AgentExecutor {
         agentId,
         message: messageText,
         deliver: false,
-        channel: "internal",
         idempotencyKey: runId,
       };
 
