@@ -91,7 +91,8 @@ function parsePeers(raw: unknown): PeerConfig[] {
     }
 
     const authRaw = asObject(value.auth);
-    const authType = asString(authRaw.type, "") as "bearer" | "apiKey";
+    const authTypeRaw = asString(authRaw.type, "");
+    const authType = authTypeRaw === "bearer" || authTypeRaw === "apiKey" ? authTypeRaw : "";
     const token = asString(authRaw.token, "");
 
     peers.push({

@@ -22,7 +22,8 @@ function toSkill(entry: string | { id?: string; name: string; description?: stri
 
 export function buildAgentCard(config: GatewayConfig): AgentCard {
   const configuredUrl = config.agentCard.url;
-  const fallbackUrl = `http://${config.server.host}:${config.server.port}/a2a/jsonrpc`;
+  const fallbackHost = config.server.host === "0.0.0.0" ? "localhost" : config.server.host;
+  const fallbackUrl = `http://${fallbackHost}:${config.server.port}/a2a/jsonrpc`;
 
   const securitySchemes: AgentCard["securitySchemes"] = {};
   const security: AgentCard["security"] = [];
