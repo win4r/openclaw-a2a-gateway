@@ -374,6 +374,64 @@ openclaw gateway restart
 
 Make sure the token in your peer config matches the `security.token` on the target server exactly.
 
+## Agent Skill (for OpenClaw / Codex CLI)
+
+This repo includes a ready-to-use **skill** at `skill/` that guides AI agents (OpenClaw, Codex CLI, Claude Code, etc.) through the full A2A setup process step by step — including installation, configuration, peer registration, TOOLS.md setup, and verification.
+
+### Why use the skill?
+
+Manually configuring A2A involves many steps with specific field names, URL patterns, and token handling. The skill encodes all of this as a repeatable procedure, preventing common mistakes like:
+
+- Confusing `agentCard.url` (JSON-RPC endpoint) with `peers[].agentCardUrl` (Agent Card discovery)
+- Forgetting to update TOOLS.md (agent won't know how to call peers)
+- Using relative paths in `plugins.load.paths` (must be absolute)
+- Missing mutual peer registration (both sides need each other's config)
+
+### Install the skill
+
+**For OpenClaw:**
+
+```bash
+# Copy to your skills directory
+cp -r <repo>/skill ~/.openclaw/workspace/skills/a2a-setup
+
+# Or symlink
+ln -s $(pwd)/skill ~/.openclaw/workspace/skills/a2a-setup
+```
+
+**For Codex CLI:**
+
+```bash
+# Copy to Codex skills directory
+cp -r <repo>/skill ~/.codex/skills/a2a-setup
+```
+
+**For Claude Code:**
+
+```bash
+# Copy to your project or workspace
+cp -r <repo>/skill ./skills/a2a-setup
+```
+
+### What's in the skill
+
+```
+skill/
+├── SKILL.md                          # Step-by-step setup guide
+└── references/
+    └── tools-md-template.md          # TOOLS.md template for agent A2A awareness
+```
+
+### Usage
+
+Once installed, tell your agent:
+
+- "Set up A2A gateway" / "配置 A2A"
+- "Connect this OpenClaw to another server via A2A"
+- "Add an A2A peer"
+
+The agent will follow the skill's procedure automatically.
+
 ## License
 
 MIT

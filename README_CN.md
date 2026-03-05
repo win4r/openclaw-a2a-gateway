@@ -374,6 +374,60 @@ openclaw gateway restart
 
 确保你的 peer 配置中的 token 和目标服务器的 `security.token` 完全一致。
 
+## Agent Skill（适用于 OpenClaw / Codex CLI）
+
+本仓库在 `skill/` 目录下包含一个开箱即用的 **skill**，可以引导 AI agent（OpenClaw、Codex CLI、Claude Code 等）一步步完成 A2A 的完整配置流程 —— 包括安装、配置、Peer 注册、TOOLS.md 设置和验证。
+
+### 为什么要用 skill？
+
+手动配置 A2A 涉及很多步骤，字段名、URL 格式和 Token 处理都容易出错。Skill 把这些编码成可重复的流程，避免常见错误：
+
+- 混淆 `agentCard.url`（JSON-RPC 端点）和 `peers[].agentCardUrl`（Agent Card 发现地址）
+- 忘记更新 TOOLS.md（导致 agent 不知道如何调用 peer）
+- `plugins.load.paths` 用了相对路径（必须用绝对路径）
+- 忘了双向配对（两边都要把对方加为 peer）
+
+### 安装 skill
+
+**OpenClaw：**
+
+```bash
+cp -r <仓库路径>/skill ~/.openclaw/workspace/skills/a2a-setup
+# 或软链接
+ln -s $(pwd)/skill ~/.openclaw/workspace/skills/a2a-setup
+```
+
+**Codex CLI：**
+
+```bash
+cp -r <仓库路径>/skill ~/.codex/skills/a2a-setup
+```
+
+**Claude Code：**
+
+```bash
+cp -r <仓库路径>/skill ./skills/a2a-setup
+```
+
+### Skill 内容
+
+```
+skill/
+├── SKILL.md                          # 分步配置指南
+└── references/
+    └── tools-md-template.md          # TOOLS.md 模板，让 agent 知道如何调用 A2A
+```
+
+### 使用方式
+
+安装后，跟你的 agent 说：
+
+- "配置 A2A gateway" / "Set up A2A"
+- "把这台 OpenClaw 通过 A2A 连接到另一台服务器"
+- "添加一个 A2A peer"
+
+Agent 会自动按照 skill 的流程执行。
+
 ## 许可证
 
 MIT
