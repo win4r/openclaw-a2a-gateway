@@ -110,15 +110,25 @@ export class A2AClient {
     try {
       const client = await factory.createFromUrl(baseUrl, path);
 
+      const targetAgentId = typeof (message as any)?.agentId === "string" ? String((message as any).agentId) : "";
+
+      const outboundMessage: any = {
+        kind: "message",
+        messageId: (message.messageId as string) || uuidv4(),
+        role: (message.role as Message["role"]) || "user",
+        parts: (message.parts as Message["parts"]) || [
+          { kind: "text", text: String(message.text || message.message || "") },
+        ],
+      };
+
+      // OpenClaw extension: allow per-message routing to a specific agentId on the peer.
+      // Note: gRPC transport uses protobuf Message and may drop unknown fields.
+      if (targetAgentId) {
+        outboundMessage.agentId = targetAgentId;
+      }
+
       const sendParams: MessageSendParams = {
-        message: {
-          kind: "message",
-          messageId: (message.messageId as string) || uuidv4(),
-          role: (message.role as Message["role"]) || "user",
-          parts: (message.parts as Message["parts"]) || [
-            { kind: "text", text: String(message.text || message.message || "") },
-          ],
-        },
+        message: outboundMessage,
       };
 
       const serviceParameters: Record<string, string> = {};

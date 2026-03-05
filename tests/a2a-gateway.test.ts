@@ -425,6 +425,11 @@ describe("a2a-gateway plugin", () => {
 
       const params = received[0].params as Record<string, unknown>;
       assert.equal(typeof params, "object");
+
+      const msg = (params as any)?.message as Record<string, unknown>;
+      assert.equal(typeof msg, "object");
+      // OpenClaw extension: agentId should be forwarded for peer-side routing.
+      assert.equal(msg.agentId, "peer-agent");
     } finally {
       globalThis.fetch = originalFetch;
     }

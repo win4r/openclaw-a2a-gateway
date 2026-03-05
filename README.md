@@ -157,6 +157,22 @@ node <PLUGIN_PATH>/skill/scripts/a2a-send.mjs \
 
 The script uses `@a2a-js/sdk` ClientFactory to auto-discover the Agent Card and select the best transport.
 
+### Target a specific OpenClaw agentId (OpenClaw extension)
+
+By default, the peer routes inbound A2A messages to `routing.defaultAgentId` (often `main`).
+
+To route a single request to a specific OpenClaw `agentId` on the peer, pass `--agent-id`:
+
+```bash
+node <PLUGIN_PATH>/skill/scripts/a2a-send.mjs \
+  --peer-url http://<PEER_IP>:18800 \
+  --token <PEER_TOKEN> \
+  --agent-id coder \
+  --message "Run a health check"
+```
+
+This is implemented as a non-standard `message.agentId` field understood by this plugin. It is most reliable over JSON-RPC/REST. gRPC transport may drop unknown Message fields.
+
 ### From your OpenClaw agent
 
 Add this to your agent's `TOOLS.md` so it knows how to call peers (see `skill/references/tools-md-template.md` for the full template):
@@ -181,6 +197,9 @@ node <PLUGIN_PATH>/skill/scripts/a2a-send.mjs \
   --peer-url http://<PEER_IP>:18800 \
   --token <PEER_TOKEN> \
   --message "YOUR MESSAGE HERE"
+
+# Optional (OpenClaw extension): route to a specific peer agentId
+#  --agent-id coder
 \```
 
 The script auto-discovers the Agent Card, handles auth, and prints the peer's response text.

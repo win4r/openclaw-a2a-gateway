@@ -157,6 +157,22 @@ node <插件路径>/skill/scripts/a2a-send.mjs \
 
 脚本使用 `@a2a-js/sdk` ClientFactory 自动发现 Agent Card 并选择最佳传输协议。
 
+### 指定路由到某个 OpenClaw agentId（OpenClaw 扩展）
+
+默认情况下，对端会把入站 A2A 消息路由到 `routing.defaultAgentId`（通常是 `main`）。
+
+如果你希望“这一条消息”路由到对端某个特定的 OpenClaw `agentId`（例如 `coder`），可以加 `--agent-id`：
+
+```bash
+node <插件路径>/skill/scripts/a2a-send.mjs \
+  --peer-url http://<对等方IP>:18800 \
+  --token <对等方Token> \
+  --agent-id coder \
+  --message "跑一遍测试并汇总结果"
+```
+
+这是通过非标准字段 `message.agentId` 实现的（本插件支持）。该方式在 JSON-RPC/REST 上最可靠；gRPC 传输可能会丢弃未知 Message 字段。
+
 ### 让你的 Agent 知道如何调用（TOOLS.md 模板）
 
 在 Agent 的 `TOOLS.md` 中添加以下内容（完整模板见 `skill/references/tools-md-template.md`），Agent 就能自主调用 A2A：
@@ -181,6 +197,9 @@ node <插件路径>/skill/scripts/a2a-send.mjs \
   --peer-url http://<PEER_IP>:18800 \
   --token <PEER_TOKEN> \
   --message "你的消息内容"
+
+# 可选（OpenClaw 扩展）：路由到对端特定 agentId
+#  --agent-id coder
 \```
 
 脚本自动发现 Agent Card、处理认证、并输出对方的回复文本。

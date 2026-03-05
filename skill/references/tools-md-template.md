@@ -24,6 +24,9 @@ node <WORKSPACE>/plugins/a2a-gateway/skill/scripts/a2a-send.mjs \
   --peer-url http://<PEER_IP>:18800 \
   --token <PEER_TOKEN> \
   --message "YOUR MESSAGE HERE"
+
+# Optional (OpenClaw extension): route to a specific peer OpenClaw agentId
+#  --agent-id coder
 ```
 
 The script uses `@a2a-js/sdk` ClientFactory to:
