@@ -1,30 +1,32 @@
 # OpenClaw A2A Gateway - 测试报告
 
 > 测试人：AliceLJY（小试AI公众号）
-> 测试日期：2026-03-05
+> 测试日期：2026-03-05（初测）/ 2026-03-06（补测 Codespace 节点）
 > 插件版本：1.0.0（commit master + 本地修复）
 > OpenClaw 版本：2026.3.2（全部节点）
 
 ## 测试环境
 
-### 四节点拓扑
+### 五节点拓扑（2026-03-06 新增 Codespace）
 
 | 节点 | 位置 | 容器/服务 | A2A 端口 | AI 模型 | Tailscale IP |
 |------|------|----------|---------|---------|-------------|
-| **AntiBot** | 本地 Docker | `openclaw-antigravity` | 18800 | Sonnet 4.6 | 100.123.101.117 |
-| **XiaoshiAI** | 本地 Docker | `openclaw-twin` | 18801 | Codex gpt-5.2 | 100.123.101.117 |
-| **Ruizhi** | 本地 Docker | `openclaw-gateway` | 18802 | Gemini 3 Pro CLI | 100.123.101.117 |
-| **AWS-bot** | AWS EC2 | systemd 原生 | 18800 | Codex gpt-5.2 | 100.90.128.4 |
+| **AntiBot** | 本地 Docker | `openclaw-antigravity` | 18800 | MiniMax M2.5 | 100.123.101.117 |
+| **XiaoshiAI** | 本地 Docker | `openclaw-twin` | 18801 | MiniMax M2.5 | 100.123.101.117 |
+| **Ruizhi** | 本地 Docker | `openclaw-gateway` | 18802 | Gemini CLI | 100.123.101.117 |
+| **AWS-bot** | AWS EC2 | systemd 原生 | 18800 | MiniMax M2.5 | 100.90.128.4 |
+| **CodespaceBot** | GitHub Codespace | 原生进程 | 18800 | MiniMax M2.5 | 100.73.176.51 |
 
 ### 网络
 
 - 本地 Docker 三节点通过宿主机端口映射（18800/18801/18802）
 - AWS 通过 Tailscale mesh 网络（100.x.x.x）与本地互通
+- **Codespace 通过 Tailscale mesh 接入**（100.73.176.51），无需公网端口转发
 - 所有节点配置 Bearer token 双向认证
 
 ## 最终测试结果矩阵
 
-### 修复后全量测试（12/12 通过）
+### 2026-03-05 基础测试（12/12 通过）
 
 | # | 发送方 | 接收方 | 场景 | 结果 | 响应内容 |
 |---|--------|--------|------|------|----------|
@@ -40,6 +42,23 @@
 | 10 | 错误 token 认证 | — | 安全 | ✅ | 正确拒绝（JSON-RPC error -32603） |
 | 11 | agentId 路由（→coder） | AntiBot | 路由 | ✅ | "My agent ID is coder" |
 | 12 | Agent Card 发现 | 全部 4 节点 | 发现 | ✅ | 双向可达 |
+
+### 2026-03-06 Codespace 节点补测（8/8 通过）
+
+> Codespace 环境：GitHub Codespaces（Azure Linux），OpenClaw 2026.3.2 原生进程（无 Docker，无 systemd），通过 Tailscale 接入 mesh 网络。
+
+| # | 发送方 | 接收方 | 场景 | 结果 | 响应内容 |
+|---|--------|--------|------|------|----------|
+| 13 | 本地 | CodespaceBot | 本地→云端 Codespace | ✅ | "Nova（GitHub Codespaces，Azure Linux）" |
+| 14 | Codespace | AntiBot | 云端→本地 Docker | ✅ | "AntiBot。" |
+| 15 | Codespace | Ruizhi | 云端→本地 Docker | ✅ | "我是睿智。[完毕]" |
+| 16 | AntiBot | CodespaceBot | 本地→Codespace | ✅ | "Nova 🌍，云端运行" |
+| 17 | Ruizhi | CodespaceBot | 本地→Codespace | ✅ | "Nova" |
+| 18 | 错误 token → Codespace | — | Codespace 安全 | ✅ | 正确拒绝（-32603） |
+| 19 | Agent Card 发现 | CodespaceBot | 发现 | ✅ | url=http://100.73.176.51:18800/a2a/jsonrpc |
+| 20 | Agent Card 发现 | 全部 5 节点 | 跨节点发现 | ✅ | 所有节点双向可达 |
+
+**累计通过：20/20**
 
 ## 发现的问题与解决方案
 
