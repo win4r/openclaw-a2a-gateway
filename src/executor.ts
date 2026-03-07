@@ -433,7 +433,7 @@ class GatewayRpcConnection {
         instanceId: uuidv4(),
       },
       role: "operator",
-      scopes: ["operator.admin", "operator.read", "operator.write", "operator.approvals", "operator.pairing"],
+      scopes: ["operator.admin", "operator.approvals", "operator.pairing"],
     };
 
     if (Object.keys(auth).length > 0) {
@@ -562,7 +562,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
     let responseText = FALLBACK_RESPONSE_TEXT;
 
     try {
-      responseText = await this.dispatchViaGatewayRpc(agentId, requestContext.userMessage);
+      responseText = await this.dispatchViaGatewayRpc(agentId, requestContext.userMessage, contextId);
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       this.api.logger.warn(`a2a-gateway: agent dispatch failed (${errorMessage}); using fallback`);
@@ -639,7 +639,11 @@ export class OpenClawAgentExecutor implements AgentExecutor {
   }
 
 
-  private async dispatchViaGatewayRpc(agentId: string, userMessage: unknown): Promise<string> {
+  private async dispatchViaGatewayRpc(
+    agentId: string,
+    userMessage: unknown,
+    contextId: string,
+  ): Promise<string> {
     const messageText = extractInboundMessageText(userMessage);
     const gatewayConfig = this.resolveGatewayRuntimeConfig();
     const gateway = new GatewayRpcConnection(gatewayConfig);
@@ -647,19 +651,11 @@ export class OpenClawAgentExecutor implements AgentExecutor {
     await gateway.connect();
 
     try {
-      let sessionKey = "";
-      try {
-        const sessionResult = await gateway.request(
-          "sessions.resolve",
-          { agentId },
-          GATEWAY_REQUEST_TIMEOUT_MS,
-          false,
-        );
-        sessionKey = asString(asObject(sessionResult)?.key) || "";
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.api.logger.warn(`a2a-gateway: sessions.resolve failed for ${agentId}: ${message}`);
-      }
+      // Derive a deterministic session key from A2A contextId for:
+      // 1. Session reuse across messages in the same A2A context (conversation continuity)
+      // 2. Isolation between different A2A contexts (no cross-contamination)
+      // The gateway `agent` RPC auto-creates the session if it doesn't exist.
+      const sessionKey = `a2a:${agentId}:${contextId}`;
 
       const runId = uuidv4();
       const agentParams: Record<string, unknown> = {
@@ -667,11 +663,8 @@ export class OpenClawAgentExecutor implements AgentExecutor {
         message: messageText,
         deliver: false,
         idempotencyKey: runId,
+        sessionKey,
       };
-
-      if (sessionKey) {
-        agentParams.sessionKey = sessionKey;
-      }
 
       const finalPayload = await gateway.request(
         "agent",
@@ -691,17 +684,17 @@ export class OpenClawAgentExecutor implements AgentExecutor {
         return directText;
       }
 
-      if (sessionKey) {
-        const historyPayload = await gateway.request(
-          "chat.history",
-          { sessionKey, limit: 50 },
-          GATEWAY_REQUEST_TIMEOUT_MS,
-          false,
-        );
-        const historyText = extractLatestAssistantReply(historyPayload);
-        if (historyText) {
-          return historyText;
-        }
+      // sessionKey is always available (deterministic from contextId),
+      // so we can always try to retrieve the latest assistant reply from history.
+      const historyPayload = await gateway.request(
+        "chat.history",
+        { sessionKey, limit: 50 },
+        GATEWAY_REQUEST_TIMEOUT_MS,
+        false,
+      );
+      const historyText = extractLatestAssistantReply(historyPayload);
+      if (historyText) {
+        return historyText;
       }
 
       throw new Error("No assistant response text returned by gateway");
