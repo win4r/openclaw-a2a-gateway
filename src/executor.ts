@@ -65,8 +65,12 @@ function formatFilePartAsText(obj: Record<string, unknown>): string {
     return "";
   }
 
-  const name = asString(file.name) || "file";
-  const mimeType = asString(file.mimeType) || "application/octet-stream";
+  // Sanitize name/mimeType: strip control chars and newlines to prevent
+  // format injection when embedded in the agent message text.
+  const rawName = asString(file.name) || "file";
+  const rawMimeType = asString(file.mimeType) || "application/octet-stream";
+  const name = rawName.replace(/[\r\n\t\x00-\x1f]/g, "").slice(0, 200);
+  const mimeType = rawMimeType.replace(/[\r\n\t\x00-\x1f]/g, "").slice(0, 100);
 
   // URI-based file
   const uri = asString(file.uri);
