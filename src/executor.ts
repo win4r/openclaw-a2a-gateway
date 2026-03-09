@@ -677,7 +677,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       // 1. Session reuse across messages in the same A2A context (conversation continuity)
       // 2. Isolation between different A2A contexts (no cross-contamination)
       // The gateway `agent` RPC auto-creates the session if it doesn't exist.
-      const sessionKey = `a2a:${agentId}:${contextId}`;
+      const sessionKey = `agent:${agentId}:a2a:${contextId}`;
 
       const runId = uuidv4();
       const agentParams: Record<string, unknown> = {

@@ -30,6 +30,35 @@ An [OpenClaw](https://github.com/openclaw/openclaw) plugin that implements the [
 
 ## Installation
 
+### Quick Start (zero-config)
+
+The plugin ships with sensible defaults — you can install and load it **without any manual configuration**:
+
+```bash
+# Clone
+mkdir -p ~/.openclaw/workspace/plugins
+cd ~/.openclaw/workspace/plugins
+git clone https://github.com/win4r/openclaw-a2a-gateway.git a2a-gateway
+cd a2a-gateway
+npm install --production
+
+# Register & enable
+openclaw plugins install ~/.openclaw/workspace/plugins/a2a-gateway
+
+# Restart
+openclaw gateway restart
+
+# Verify
+openclaw plugins list          # should show a2a-gateway as loaded
+curl -s http://localhost:18800/.well-known/agent-card.json | python3 -m json.tool
+```
+
+The plugin will start with the default Agent Card (`name: "OpenClaw A2A Gateway"`, `skills: [chat]`). You can customize it later — see [Configure the Agent Card](#3-configure-the-agent-card) below.
+
+### Step-by-Step Installation
+
+If you prefer manual control or need to keep existing plugins in your config:
+
 ### 1. Clone the plugin
 
 ```bash
@@ -58,7 +87,15 @@ openclaw config set plugins.entries.a2a-gateway.enabled true
 
 ### 3. Configure the Agent Card
 
-Every A2A agent needs an Agent Card that describes itself:
+Every A2A agent needs an Agent Card that describes itself. If you skip this step, the plugin uses these defaults:
+
+| Field | Default |
+|-------|---------|
+| `agentCard.name` | `OpenClaw A2A Gateway` |
+| `agentCard.description` | `A2A bridge for OpenClaw agents` |
+| `agentCard.skills` | `[{"id":"chat","name":"chat","description":"Chat bridge"}]` |
+
+To customize:
 
 ```bash
 openclaw config set plugins.entries.a2a-gateway.config.agentCard.name 'My Agent'
@@ -329,10 +366,10 @@ node <PLUGIN_PATH>/skill/scripts/a2a-send.mjs \
 
 | Path | Type | Default | Description |
 |------|------|---------|-------------|
-| `agentCard.name` | string | *required* | Display name for this agent |
-| `agentCard.description` | string | — | Human-readable description |
+| `agentCard.name` | string | `OpenClaw A2A Gateway` | Display name for this agent |
+| `agentCard.description` | string | `A2A bridge for OpenClaw agents` | Human-readable description |
 | `agentCard.url` | string | auto | JSON-RPC endpoint URL |
-| `agentCard.skills` | array | *required* | List of skills this agent offers |
+| `agentCard.skills` | array | `[{chat}]` | List of skills this agent offers |
 | `server.host` | string | `0.0.0.0` | Bind address |
 | `server.port` | number | `18800` | A2A server port |
 | `peers` | array | `[]` | List of peer agents |

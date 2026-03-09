@@ -21,14 +21,17 @@ function toSkill(entry: string | { id?: string; name: string; description?: stri
 }
 
 export function buildAgentCard(config: GatewayConfig): AgentCard {
-  const configuredUrl = config.agentCard.url;
-  const fallbackHost = config.server.host === "0.0.0.0" ? "localhost" : config.server.host;
-  const fallbackUrl = `http://${fallbackHost}:${config.server.port}/a2a/jsonrpc`;
+  const agentCard = config.agentCard || ({} as GatewayConfig["agentCard"]);
+  const server = config.server || { host: "0.0.0.0", port: 18800 };
+  const configuredUrl = agentCard.url;
+  const fallbackHost = server.host === "0.0.0.0" ? "localhost" : server.host;
+  const fallbackUrl = `http://${fallbackHost}:${server.port}/a2a/jsonrpc`;
 
   const securitySchemes: AgentCard["securitySchemes"] = {};
   const security: AgentCard["security"] = [];
 
-  if (config.security.inboundAuth === "bearer") {
+  const security_ = config.security || { inboundAuth: "none", token: "" };
+  if (security_.inboundAuth === "bearer") {
     securitySchemes["bearer"] = {
       type: "http",
       scheme: "bearer",
@@ -36,18 +39,18 @@ export function buildAgentCard(config: GatewayConfig): AgentCard {
     security.push({ bearer: [] });
   }
 
-  const grpcPort = config.server.port + 1;
-  const grpcHost = config.server.host === "0.0.0.0"
+  const grpcPort = server.port + 1;
+  const grpcHost = server.host === "0.0.0.0"
     ? (configuredUrl ? new URL(configuredUrl).hostname : "localhost")
-    : config.server.host;
+    : server.host;
 
   return {
     protocolVersion: "0.3.0",
     version: "1.0.0",
-    name: config.agentCard.name,
-    description: config.agentCard.description || "A2A bridge for OpenClaw agents",
+    name: agentCard.name || "OpenClaw A2A Gateway",
+    description: agentCard.description || "A2A bridge for OpenClaw agents",
     url: configuredUrl || fallbackUrl,
-    skills: config.agentCard.skills.map((entry, index) => toSkill(entry, index)),
+    skills: (agentCard.skills || []).map((entry, index) => toSkill(entry, index)),
     capabilities: {
       streaming: false,
       pushNotifications: false,

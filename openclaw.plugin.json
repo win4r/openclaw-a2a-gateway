@@ -3,6 +3,13 @@
   "name": "A2A Gateway",
   "description": "OpenClaw A2A v0.3.0 gateway with Agent Card, JSON-RPC, and REST endpoints",
   "version": "1.0.0",
+  "defaultConfig": {
+    "agentCard": {
+      "name": "OpenClaw A2A Gateway",
+      "description": "A2A bridge for OpenClaw agents",
+      "skills": [{ "id": "chat", "name": "chat", "description": "Chat bridge" }]
+    }
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -31,8 +38,7 @@
               ]
             }
           }
-        },
-        "required": ["name", "skills"]
+        }
       },
       "server": {
         "type": "object",
@@ -99,8 +105,7 @@
           }
         }
       }
-    },
-    "required": ["agentCard"]
+    }
   },
   "uiHints": {
     "peers": {

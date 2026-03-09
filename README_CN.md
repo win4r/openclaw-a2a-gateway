@@ -30,6 +30,35 @@
 
 ## 安装步骤
 
+### 快速开始（零配置）
+
+插件内置了合理的默认值 —— **无需任何手动配置**即可安装并加载：
+
+```bash
+# 克隆
+mkdir -p ~/.openclaw/workspace/plugins
+cd ~/.openclaw/workspace/plugins
+git clone https://github.com/win4r/openclaw-a2a-gateway.git a2a-gateway
+cd a2a-gateway
+npm install --production
+
+# 注册并启用
+openclaw plugins install ~/.openclaw/workspace/plugins/a2a-gateway
+
+# 重启
+openclaw gateway restart
+
+# 验证
+openclaw plugins list          # 应该能看到 a2a-gateway 已加载
+curl -s http://localhost:18800/.well-known/agent-card.json | python3 -m json.tool
+```
+
+插件会以默认 Agent Card 启动（`name: "OpenClaw A2A Gateway"`，`skills: [chat]`）。后续可按需自定义 —— 见下方 [配置 Agent Card](#3-配置-agent-card)。
+
+### 分步安装
+
+如果你需要手动控制或保留已有插件配置：
+
 ### 1. 克隆插件
 
 ```bash
@@ -58,7 +87,15 @@ openclaw config set plugins.entries.a2a-gateway.enabled true
 
 ### 3. 配置 Agent Card
 
-每个 A2A Agent 都需要一个描述自身的 Agent Card：
+每个 A2A Agent 都需要一个描述自身的 Agent Card。如果跳过此步骤，插件使用以下默认值：
+
+| 字段 | 默认值 |
+|------|--------|
+| `agentCard.name` | `OpenClaw A2A Gateway` |
+| `agentCard.description` | `A2A bridge for OpenClaw agents` |
+| `agentCard.skills` | `[{"id":"chat","name":"chat","description":"Chat bridge"}]` |
+
+自定义配置：
 
 ```bash
 openclaw config set plugins.entries.a2a-gateway.config.agentCard.name '我的Agent'
@@ -327,10 +364,10 @@ node <插件路径>/skill/scripts/a2a-send.mjs \
 
 | 配置路径 | 类型 | 默认值 | 说明 |
 |---------|------|--------|------|
-| `agentCard.name` | string | *必填* | Agent 显示名称 |
-| `agentCard.description` | string | — | 人类可读的描述 |
+| `agentCard.name` | string | `OpenClaw A2A Gateway` | Agent 显示名称 |
+| `agentCard.description` | string | `A2A bridge for OpenClaw agents` | 人类可读的描述 |
 | `agentCard.url` | string | 自动 | JSON-RPC 端点 URL |
-| `agentCard.skills` | array | *必填* | Agent 提供的技能列表 |
+| `agentCard.skills` | array | `[{chat}]` | Agent 提供的技能列表 |
 | `server.host` | string | `0.0.0.0` | 绑定地址 |
 | `server.port` | number | `18800` | A2A 服务端口 |
 | `peers` | array | `[]` | 对等 Agent 列表 |
