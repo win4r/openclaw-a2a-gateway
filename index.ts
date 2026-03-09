@@ -252,6 +252,75 @@ const plugin = {
         });
     });
 
+    // ------------------------------------------------------------------
+    // Agent tool: a2a_send_file
+    // Lets the agent send a file (by URI) to a peer via A2A FilePart.
+    // ------------------------------------------------------------------
+    if (api.registerTool) {
+      const sendFileParams = {
+        type: "object" as const,
+        required: ["peer", "uri"],
+        properties: {
+          peer: { type: "string" as const, description: "Name of the target peer (must match a configured peer name)" },
+          uri: { type: "string" as const, description: "Public URL of the file to send" },
+          name: { type: "string" as const, description: "Filename (e.g. report.pdf)" },
+          mimeType: { type: "string" as const, description: "MIME type (e.g. application/pdf). Auto-detected from extension if omitted." },
+          text: { type: "string" as const, description: "Optional text message to include alongside the file" },
+        },
+      };
+
+      api.registerTool({
+        name: "a2a_send_file",
+        description: "Send a file to a peer agent via A2A. The file is referenced by its public URL (URI). " +
+          "Use this when you need to transfer a document, image, or any file to another agent.",
+        label: "A2A Send File",
+        parameters: sendFileParams,
+        async execute(toolCallId, params) {
+          const peer = config.peers.find((p) => p.name === params.peer);
+          if (!peer) {
+            const available = config.peers.map((p) => p.name).join(", ") || "(none)";
+            return {
+              content: [{ type: "text" as const, text: `Peer not found: "${params.peer}". Available peers: ${available}` }],
+              details: { ok: false },
+            };
+          }
+
+          const parts: Array<Record<string, unknown>> = [];
+          if (params.text) {
+            parts.push({ kind: "text", text: params.text });
+          }
+          parts.push({
+            kind: "file",
+            file: {
+              uri: params.uri,
+              ...(params.name ? { name: params.name } : {}),
+              ...(params.mimeType ? { mimeType: params.mimeType } : {}),
+            },
+          });
+
+          try {
+            const result = await client.sendMessage(peer, { parts });
+            if (result.ok) {
+              return {
+                content: [{ type: "text" as const, text: `File sent to ${params.peer} via A2A.\nURI: ${params.uri}\nResponse: ${JSON.stringify(result.response)}` }],
+                details: { ok: true, response: result.response },
+              };
+            }
+            return {
+              content: [{ type: "text" as const, text: `Failed to send file to ${params.peer}: ${JSON.stringify(result.response)}` }],
+              details: { ok: false, response: result.response },
+            };
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            return {
+              content: [{ type: "text" as const, text: `Error sending file to ${params.peer}: ${msg}` }],
+              details: { ok: false, error: msg },
+            };
+          }
+        },
+      });
+    }
+
     if (!api.registerService) {
       api.logger.warn("a2a-gateway: registerService is unavailable; HTTP endpoints are not started");
       return;
