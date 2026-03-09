@@ -95,8 +95,10 @@ function makeConfig(overrides: Record<string, unknown> = {}): Record<string, unk
 function createMockWebSocketClass(options?: {
   onAgent?: (params: Record<string, unknown>) => void;
   agentResponseText?: string;
+  agentResponsePayloads?: Array<Record<string, unknown>>;
 }) {
   const agentResponseText = options?.agentResponseText ?? "Gateway response";
+  const agentResponsePayloads = options?.agentResponsePayloads;
 
   return class MockGatewaySocket {
     readyState = 0;
@@ -136,11 +138,10 @@ function createMockWebSocketClass(options?: {
       if (frame.method === "agent") {
         options?.onAgent?.(frame.params || {});
         this.respond(frame.id, true, { status: "accepted" });
+        const payloads = agentResponsePayloads ?? [{ kind: "text", text: agentResponseText }];
         this.respond(frame.id, true, {
           status: "ok",
-          result: {
-            payloads: [{ kind: "text", text: agentResponseText }],
-          },
+          result: { payloads },
         });
         return;
       }
@@ -453,6 +454,299 @@ describe("a2a-gateway plugin", () => {
     assert.equal(published.length, 1);
     assert.equal(published[0].id, "task-1");
     assert.equal(published[0].contextId, "ctx-1");
+  });
+
+  it("inbound FilePart (URI) is formatted as text for the agent", async () => {
+    const api = {
+      config: { gateway: { port: 18789 } },
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+    } as any;
+
+    let capturedMessage = "";
+
+    const MockWS = createMockWebSocketClass({
+      onAgent: (params) => {
+        capturedMessage = params.message as string;
+      },
+    });
+
+    const originalWebSocket = (globalThis as any).WebSocket;
+    (globalThis as any).WebSocket = MockWS;
+
+    try {
+      const executor = new OpenClawAgentExecutor(api, makeConfig() as unknown as GatewayConfig);
+
+      await executor.execute(
+        {
+          taskId: "task-fp-1",
+          contextId: "ctx-fp-1",
+          userMessage: {
+            messageId: "msg-fp-1",
+            role: "user",
+            parts: [
+              { kind: "text", text: "Check this image" },
+              {
+                kind: "file",
+                file: {
+                  uri: "https://example.com/photo.png",
+                  mimeType: "image/png",
+                  name: "photo.png",
+                },
+              },
+            ],
+          },
+        } as any,
+        { publish() {}, finished() {} } as any,
+      );
+
+      assert.ok(
+        capturedMessage.includes("Check this image"),
+        "should include the text part",
+      );
+      assert.ok(
+        capturedMessage.includes("https://example.com/photo.png"),
+        "should include the file URI in the message",
+      );
+      assert.ok(
+        capturedMessage.includes("photo.png"),
+        "should include the filename",
+      );
+      assert.ok(
+        capturedMessage.includes("image/png"),
+        "should include the MIME type",
+      );
+    } finally {
+      (globalThis as any).WebSocket = originalWebSocket;
+    }
+  });
+
+  it("inbound FilePart (base64) is formatted with size hint", async () => {
+    const api = {
+      config: { gateway: { port: 18789 } },
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+    } as any;
+
+    let capturedMessage = "";
+
+    // 100 bytes of base64 = ~75 actual bytes ≈ 1KB (rounded up)
+    const fakeBase64 = "A".repeat(100);
+
+    const MockWS = createMockWebSocketClass({
+      onAgent: (params) => {
+        capturedMessage = params.message as string;
+      },
+    });
+
+    const originalWebSocket = (globalThis as any).WebSocket;
+    (globalThis as any).WebSocket = MockWS;
+
+    try {
+      const executor = new OpenClawAgentExecutor(api, makeConfig() as unknown as GatewayConfig);
+
+      await executor.execute(
+        {
+          taskId: "task-fp-2",
+          contextId: "ctx-fp-2",
+          userMessage: {
+            messageId: "msg-fp-2",
+            role: "user",
+            parts: [
+              {
+                kind: "file",
+                file: {
+                  bytes: fakeBase64,
+                  mimeType: "application/pdf",
+                  name: "doc.pdf",
+                },
+              },
+            ],
+          },
+        } as any,
+        { publish() {}, finished() {} } as any,
+      );
+
+      assert.ok(
+        capturedMessage.includes("doc.pdf"),
+        "should include the filename",
+      );
+      assert.ok(
+        capturedMessage.includes("inline"),
+        "should mention inline for base64 content",
+      );
+      assert.ok(
+        capturedMessage.includes("KB"),
+        "should include size hint",
+      );
+    } finally {
+      (globalThis as any).WebSocket = originalWebSocket;
+    }
+  });
+
+  it("response with mediaUrl produces FilePart in completed task", async () => {
+    const api = {
+      config: { gateway: { port: 18789 } },
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+    } as any;
+
+    const MockWS = createMockWebSocketClass({
+      agentResponsePayloads: [
+        {
+          text: "Here is the chart",
+          mediaUrl: "https://example.com/chart.png",
+          mediaUrls: ["https://example.com/chart.png"],
+        },
+      ],
+    });
+
+    const originalWebSocket = (globalThis as any).WebSocket;
+    (globalThis as any).WebSocket = MockWS;
+
+    try {
+      const executor = new OpenClawAgentExecutor(api, makeConfig() as unknown as GatewayConfig);
+      const published: unknown[] = [];
+
+      await executor.execute(
+        {
+          taskId: "task-media-1",
+          contextId: "ctx-media-1",
+          userMessage: {
+            messageId: "msg-media-1",
+            role: "user",
+            parts: [{ kind: "text", text: "generate chart" }],
+          },
+        } as any,
+        {
+          publish(event: unknown) { published.push(event); },
+          finished() {},
+        } as any,
+      );
+
+      const finalTask = published[published.length - 1] as Record<string, unknown>;
+      const status = finalTask.status as Record<string, unknown>;
+      assert.equal(status.state, "completed");
+
+      const message = status.message as Record<string, unknown>;
+      const parts = message.parts as Array<Record<string, unknown>>;
+
+      // Should have both TextPart and FilePart
+      const textParts = parts.filter((p) => p.kind === "text");
+      const fileParts = parts.filter((p) => p.kind === "file");
+
+      assert.ok(textParts.length >= 1, "should have at least one text part");
+      assert.equal(fileParts.length, 1, "should have exactly one file part");
+
+      const filePart = fileParts[0] as { kind: string; file: { uri: string } };
+      assert.equal(filePart.file.uri, "https://example.com/chart.png");
+
+      // Artifacts should also contain the file part
+      const artifacts = finalTask.artifacts as Array<{ parts: Array<Record<string, unknown>> }>;
+      assert.ok(artifacts.length >= 1, "should have at least one artifact");
+
+      const artifactFileParts = artifacts[0].parts.filter((p) => p.kind === "file");
+      assert.equal(artifactFileParts.length, 1, "artifact should have one file part");
+    } finally {
+      (globalThis as any).WebSocket = originalWebSocket;
+    }
+  });
+
+  it("response with multiple mediaUrls produces multiple FileParts", async () => {
+    const api = {
+      config: { gateway: { port: 18789 } },
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+    } as any;
+
+    const MockWS = createMockWebSocketClass({
+      agentResponsePayloads: [
+        {
+          text: "Gallery",
+          mediaUrls: [
+            "https://example.com/img1.jpg",
+            "https://example.com/img2.jpg",
+          ],
+        },
+      ],
+    });
+
+    const originalWebSocket = (globalThis as any).WebSocket;
+    (globalThis as any).WebSocket = MockWS;
+
+    try {
+      const executor = new OpenClawAgentExecutor(api, makeConfig() as unknown as GatewayConfig);
+      const published: unknown[] = [];
+
+      await executor.execute(
+        {
+          taskId: "task-multi-media",
+          contextId: "ctx-multi-media",
+          userMessage: {
+            messageId: "msg-multi-media",
+            role: "user",
+            parts: [{ kind: "text", text: "show gallery" }],
+          },
+        } as any,
+        {
+          publish(event: unknown) { published.push(event); },
+          finished() {},
+        } as any,
+      );
+
+      const finalTask = published[published.length - 1] as Record<string, unknown>;
+      const message = (finalTask.status as Record<string, unknown>).message as Record<string, unknown>;
+      const parts = message.parts as Array<Record<string, unknown>>;
+
+      const fileParts = parts.filter((p) => p.kind === "file");
+      assert.equal(fileParts.length, 2, "should have two file parts for two media URLs");
+    } finally {
+      (globalThis as any).WebSocket = originalWebSocket;
+    }
+  });
+
+  it("text-only response produces no FilePart (backward compatible)", async () => {
+    const api = {
+      config: { gateway: { port: 18789 } },
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+    } as any;
+
+    const MockWS = createMockWebSocketClass({
+      agentResponseText: "Just text, no media",
+    });
+
+    const originalWebSocket = (globalThis as any).WebSocket;
+    (globalThis as any).WebSocket = MockWS;
+
+    try {
+      const executor = new OpenClawAgentExecutor(api, makeConfig() as unknown as GatewayConfig);
+      const published: unknown[] = [];
+
+      await executor.execute(
+        {
+          taskId: "task-text-only",
+          contextId: "ctx-text-only",
+          userMessage: {
+            messageId: "msg-text-only",
+            role: "user",
+            parts: [{ kind: "text", text: "hello" }],
+          },
+        } as any,
+        {
+          publish(event: unknown) { published.push(event); },
+          finished() {},
+        } as any,
+      );
+
+      const finalTask = published[published.length - 1] as Record<string, unknown>;
+      const message = (finalTask.status as Record<string, unknown>).message as Record<string, unknown>;
+      const parts = message.parts as Array<Record<string, unknown>>;
+
+      assert.equal(parts.length, 1, "should have exactly one part");
+      assert.equal(parts[0].kind, "text");
+      assert.equal(parts[0].text, "Just text, no media");
+
+      const fileParts = parts.filter((p) => p.kind === "file");
+      assert.equal(fileParts.length, 0, "should have no file parts");
+    } finally {
+      (globalThis as any).WebSocket = originalWebSocket;
+    }
   });
 
   it("a2a.send sends to mocked peer JSON-RPC endpoint", async () => {

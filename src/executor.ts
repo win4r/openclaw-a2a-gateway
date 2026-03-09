@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 
-import type { Message, Task } from "@a2a-js/sdk";
+import type { Message, Part, Task } from "@a2a-js/sdk";
 import type { AgentExecutor, ExecutionEventBus, RequestContext } from "@a2a-js/sdk/server";
 
 import type { GatewayConfig, OpenClawPluginApi } from "./types.js";
@@ -10,6 +10,15 @@ const GATEWAY_CONNECT_TIMEOUT_MS = 10_000;
 const GATEWAY_REQUEST_TIMEOUT_MS = 10_000;
 const HOOKS_WAKE_TIMEOUT_MS = 5_000;
 const TASK_CONTEXT_CACHE_LIMIT = 10_000;
+
+/**
+ * Structured response from OpenClaw Gateway agent dispatch.
+ * Carries both text and optional media URLs extracted from agent payloads.
+ */
+interface AgentResponse {
+  text: string;
+  mediaUrls: string[];
+}
 
 function pickAgentId(requestContext: RequestContext, fallbackAgentId: string): string {
   const msg = requestContext.userMessage as unknown as Record<string, unknown> | undefined;
@@ -42,6 +51,39 @@ function asFiniteNumber(value: unknown): number | undefined {
   return value;
 }
 
+/**
+ * Format an A2A FilePart as human-readable text for the OpenClaw agent.
+ *
+ * The Gateway RPC `agent` method only accepts a `message: string` parameter,
+ * so file parts must be serialized into text. URI-based files include the URL
+ * so the agent can reference or fetch them; inline base64 files include a size
+ * hint since the raw bytes cannot be forwarded through the text channel.
+ */
+function formatFilePartAsText(obj: Record<string, unknown>): string {
+  const file = asObject(obj.file);
+  if (!file) {
+    return "";
+  }
+
+  const name = asString(file.name) || "file";
+  const mimeType = asString(file.mimeType) || "application/octet-stream";
+
+  // URI-based file
+  const uri = asString(file.uri);
+  if (uri) {
+    return `[Attached: ${name} (${mimeType}) \u2192 ${uri}]`;
+  }
+
+  // Base64-encoded inline file
+  const bytes = asString(file.bytes);
+  if (bytes) {
+    const sizeKB = Math.ceil((bytes.length * 3) / 4 / 1024);
+    return `[Attached: ${name} (${mimeType}), inline ${sizeKB}KB]`;
+  }
+
+  return `[Attached: ${name} (${mimeType})]`;
+}
+
 function extractTextFragments(value: unknown): string[] {
   if (typeof value === "string") {
     const trimmed = value.trim();
@@ -60,6 +102,12 @@ function extractTextFragments(value: unknown): string[] {
   if (obj.kind === "text" && typeof obj.text === "string") {
     const trimmed = obj.text.trim();
     return trimmed ? [trimmed] : [];
+  }
+
+  // Handle A2A FilePart: format as human-readable text for the agent
+  if (obj.kind === "file") {
+    const description = formatFilePartAsText(obj);
+    return description ? [description] : [];
   }
 
   const parts = Array.isArray(obj.parts) ? obj.parts : [];
@@ -102,7 +150,42 @@ function extractAgentPayloadText(payload: unknown): string | undefined {
   return fragments.join("\n").trim() || undefined;
 }
 
-function extractTextFromAgentFinalPayload(payload: unknown): string | undefined {
+/**
+ * Extract media URLs from a single agent payload entry.
+ *
+ * OpenClaw Gateway agent payloads carry media via `mediaUrl` (single) and/or
+ * `mediaUrls` (array). Both are extracted and de-duplicated.
+ */
+function extractMediaUrlsFromPayload(payload: unknown): string[] {
+  const obj = asObject(payload);
+  if (!obj) {
+    return [];
+  }
+
+  const urls: string[] = [];
+
+  const single = asString(obj.mediaUrl);
+  if (single) {
+    urls.push(single);
+  }
+
+  if (Array.isArray(obj.mediaUrls)) {
+    for (const entry of obj.mediaUrls) {
+      const url = asString(entry);
+      if (url && !urls.includes(url)) {
+        urls.push(url);
+      }
+    }
+  }
+
+  return urls;
+}
+
+/**
+ * Extract structured response (text + media URLs) from the Gateway agent
+ * final payload. Returns undefined when no usable content is found.
+ */
+function extractAgentResponse(payload: unknown): AgentResponse | undefined {
   const body = asObject(payload);
   if (!body) {
     return undefined;
@@ -115,11 +198,49 @@ function extractTextFromAgentFinalPayload(payload: unknown): string | undefined 
     .map((entry) => extractAgentPayloadText(entry))
     .filter((entry): entry is string => Boolean(entry && entry.trim()));
 
-  if (texts.length > 0) {
-    return texts.join("\n\n");
+  const mediaUrls: string[] = [];
+  for (const entry of payloads) {
+    for (const url of extractMediaUrlsFromPayload(entry)) {
+      if (!mediaUrls.includes(url)) {
+        mediaUrls.push(url);
+      }
+    }
+  }
+
+  if (texts.length > 0 || mediaUrls.length > 0) {
+    return {
+      text: texts.join("\n\n"),
+      mediaUrls,
+    };
   }
 
   return undefined;
+}
+
+/**
+ * Build A2A Part array from an AgentResponse. Produces TextPart for text
+ * content and FilePart entries for each media URL.
+ */
+function buildResponseParts(response: AgentResponse): Part[] {
+  const parts: Part[] = [];
+
+  if (response.text) {
+    parts.push({ kind: "text", text: response.text });
+  }
+
+  for (const url of response.mediaUrls) {
+    parts.push({
+      kind: "file",
+      file: { uri: url },
+    });
+  }
+
+  // Ensure at least one part exists (A2A requires non-empty parts array)
+  if (parts.length === 0) {
+    parts.push({ kind: "text", text: "" });
+  }
+
+  return parts;
 }
 
 function extractLatestAssistantReply(historyPayload: unknown): string | undefined {
@@ -558,10 +679,10 @@ export class OpenClawAgentExecutor implements AgentExecutor {
     };
     eventBus.publish(workingTask);
 
-    let responseText: string;
+    let agentResponse: AgentResponse;
 
     try {
-      responseText = await this.dispatchViaGatewayRpc(agentId, requestContext.userMessage, contextId);
+      agentResponse = await this.dispatchViaGatewayRpc(agentId, requestContext.userMessage, contextId);
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       this.api.logger.error(`a2a-gateway: agent dispatch failed: ${errorMessage}`);
@@ -592,12 +713,14 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       return;
     }
 
-    // Publish completed Task with artifact
+    // Publish completed Task with artifact (text + optional file parts)
+    const responseParts = buildResponseParts(agentResponse);
+
     const responseMessage: Message = {
       kind: "message",
       messageId: uuidv4(),
       role: "agent",
-      parts: [{ kind: "text", text: responseText }],
+      parts: responseParts,
       contextId,
     };
 
@@ -613,7 +736,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       artifacts: [
         {
           artifactId: uuidv4(),
-          parts: [{ kind: "text", text: responseText }],
+          parts: responseParts,
         },
       ],
     };
@@ -665,7 +788,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
     agentId: string,
     userMessage: unknown,
     contextId: string,
-  ): Promise<string> {
+  ): Promise<AgentResponse> {
     const messageText = extractInboundMessageText(userMessage);
     const gatewayConfig = this.resolveGatewayRuntimeConfig();
     const gateway = new GatewayRpcConnection(gatewayConfig);
@@ -701,9 +824,9 @@ export class OpenClawAgentExecutor implements AgentExecutor {
         throw new Error(summary);
       }
 
-      const directText = extractTextFromAgentFinalPayload(finalPayload);
-      if (directText) {
-        return directText;
+      const agentResponse = extractAgentResponse(finalPayload);
+      if (agentResponse) {
+        return agentResponse;
       }
 
       // sessionKey is always available (deterministic from contextId),
@@ -716,7 +839,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       );
       const historyText = extractLatestAssistantReply(historyPayload);
       if (historyText) {
-        return historyText;
+        return { text: historyText, mediaUrls: [] };
       }
 
       throw new Error("No assistant response text returned by gateway");
