@@ -210,10 +210,12 @@ export class QueueingAgentExecutor implements AgentExecutor {
         status.state === "rejected"
       ) {
         finalState = status.state;
-        finalErrorMessage =
-          typeof status.message?.parts?.[0] === "object" && status.message.parts[0]?.kind === "text"
-            ? status.message.parts[0].text
-            : finalErrorMessage;
+        if (status.state !== "completed") {
+          finalErrorMessage =
+            typeof status.message?.parts?.[0] === "object" && status.message.parts[0]?.kind === "text"
+              ? status.message.parts[0].text
+              : finalErrorMessage;
+        }
       }
     });
 
@@ -239,6 +241,14 @@ export class QueueingAgentExecutor implements AgentExecutor {
         this.queue.length,
         finalErrorMessage,
       );
+
+      // Ensure eventBus.finished() is always called so the SDK's
+      // DefaultRequestHandler does not hang waiting for the signal.
+      try {
+        entry.eventBus.finished();
+      } catch {
+        // already finished — safe to ignore
+      }
 
       this.drainQueue();
     }
