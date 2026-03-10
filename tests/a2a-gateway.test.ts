@@ -1001,4 +1001,107 @@ describe("a2a-gateway plugin", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  it("a2a_send_file tool forwards agentId to peer", async () => {
+    const received: Array<Record<string, unknown>> = [];
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (url === "http://mock-peer/.well-known/agent-card.json" || url === "http://mock-peer/.well-known/agent.json") {
+        return new Response(
+          JSON.stringify({
+            protocolVersion: "0.3.0",
+            name: "Peer Agent",
+            url: "http://mock-peer/a2a/jsonrpc",
+            skills: [],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      if (url === "http://mock-peer/a2a/jsonrpc") {
+        const bodyText = String(init?.body || "{}");
+        const payload = JSON.parse(bodyText) as Record<string, unknown>;
+        received.push(payload);
+
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: payload.id,
+            result: { accepted: true },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    try {
+      // Capture registered tools so we can invoke a2a_send_file directly
+      const tools = new Map<string, any>();
+      const config = makeConfig({
+        peers: [
+          {
+            name: "peer-1",
+            agentCardUrl: "http://mock-peer/.well-known/agent-card.json",
+          },
+        ],
+      });
+
+      plugin.register({
+        pluginConfig: config,
+        config: {} as any,
+        runtime: {} as any,
+        logger: { info: () => {}, warn: () => {}, error: () => {} },
+        on: () => {},
+        registerGatewayMethod: () => {},
+        registerService: () => {},
+        registerTool(tool: any) { tools.set(tool.name, tool); },
+        registerHook: () => {},
+        registerHttpRoute: () => {},
+        registerChannel: () => {},
+        registerCli: () => {},
+        registerProvider: () => {},
+        registerCommand: () => {},
+        resolvePath: (p: string) => p,
+        id: "a2a-gateway",
+        name: "A2A Gateway",
+        source: "test",
+      } as any);
+
+      const sendFileTool = tools.get("a2a_send_file");
+      assert.ok(sendFileTool, "a2a_send_file tool should be registered");
+
+      const result = await sendFileTool.execute("call-1", {
+        peer: "peer-1",
+        uri: "https://example.com/report.pdf",
+        name: "report.pdf",
+        mimeType: "application/pdf",
+        agentId: "coder",
+      });
+
+      assert.ok(result.details.ok, "tool call should succeed");
+      assert.equal(received.length, 1);
+
+      const params = received[0].params as Record<string, unknown>;
+      const msg = (params as any)?.message as Record<string, unknown>;
+
+      // Verify agentId is forwarded
+      assert.equal(msg.agentId, "coder", "agentId should be forwarded to peer");
+
+      // Verify FilePart structure
+      const parts = msg.parts as Array<Record<string, unknown>>;
+      const fileParts = parts.filter((p) => p.kind === "file");
+      assert.equal(fileParts.length, 1, "should have one file part");
+      const fp = fileParts[0] as { kind: string; file: { uri: string; name: string; mimeType: string } };
+      assert.equal(fp.file.uri, "https://example.com/report.pdf");
+      assert.equal(fp.file.name, "report.pdf");
+      assert.equal(fp.file.mimeType, "application/pdf");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
