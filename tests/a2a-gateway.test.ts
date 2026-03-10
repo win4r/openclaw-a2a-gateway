@@ -642,6 +642,117 @@ describe("a2a-gateway plugin", () => {
     }
   });
 
+  it("inbound DataPart is formatted as structured text for the agent", async () => {
+    const api = {
+      config: { gateway: { port: 18789 } },
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+    } as any;
+
+    let capturedMessage = "";
+
+    const MockWS = createMockWebSocketClass({
+      onAgent: (params) => {
+        capturedMessage = params.message as string;
+      },
+    });
+
+    const originalWebSocket = (globalThis as any).WebSocket;
+    (globalThis as any).WebSocket = MockWS;
+
+    try {
+      const executor = new OpenClawAgentExecutor(api, makeConfig() as unknown as GatewayConfig);
+
+      await executor.execute(
+        {
+          taskId: "task-data-1",
+          contextId: "ctx-data-1",
+          userMessage: {
+            messageId: "msg-data-1",
+            role: "user",
+            parts: [
+              {
+                kind: "data",
+                mimeType: "application/json",
+                data: { temperature: 22.5, unit: "celsius", location: "Beijing" },
+              },
+            ],
+          },
+        } as any,
+        { publish() {}, finished() {} } as any,
+      );
+
+      assert.ok(
+        capturedMessage.includes("application/json"),
+        "should include the mimeType",
+      );
+      assert.ok(
+        capturedMessage.includes("temperature"),
+        "should include the data content",
+      );
+      assert.ok(
+        capturedMessage.includes("Beijing"),
+        "should include nested data values",
+      );
+      assert.ok(
+        capturedMessage.includes("[Data"),
+        "should use [Data prefix for DataPart",
+      );
+    } finally {
+      (globalThis as any).WebSocket = originalWebSocket;
+    }
+  });
+
+  it("inbound DataPart with primitive data value is formatted correctly", async () => {
+    const api = {
+      config: { gateway: { port: 18789 } },
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+    } as any;
+
+    let capturedMessage = "";
+
+    const MockWS = createMockWebSocketClass({
+      onAgent: (params) => {
+        capturedMessage = params.message as string;
+      },
+    });
+
+    const originalWebSocket = (globalThis as any).WebSocket;
+    (globalThis as any).WebSocket = MockWS;
+
+    try {
+      const executor = new OpenClawAgentExecutor(api, makeConfig() as unknown as GatewayConfig);
+
+      await executor.execute(
+        {
+          taskId: "task-data-2",
+          contextId: "ctx-data-2",
+          userMessage: {
+            messageId: "msg-data-2",
+            role: "user",
+            parts: [
+              {
+                kind: "data",
+                data: [1, 2, 3],
+              },
+            ],
+          },
+        } as any,
+        { publish() {}, finished() {} } as any,
+      );
+
+      assert.ok(
+        capturedMessage.includes("[1,2,3]"),
+        "should include the array data",
+      );
+      assert.ok(
+        capturedMessage.includes("[Data"),
+        "should use [Data prefix for DataPart",
+      );
+    } finally {
+      (globalThis as any).WebSocket = originalWebSocket;
+    }
+  });
+
   it("response with mediaUrl produces FilePart in completed task", async () => {
     const api = {
       config: { gateway: { port: 18789 } },

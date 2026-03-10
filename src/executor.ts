@@ -52,6 +52,32 @@ function asFiniteNumber(value: unknown): number | undefined {
 }
 
 /**
+ * Format an A2A DataPart as human-readable text for the OpenClaw agent.
+ *
+ * DataPart carries structured JSON data (kind: "data"). Since the Gateway RPC
+ * only accepts plain text, we serialize the data with a mimeType hint so the
+ * agent can interpret it.
+ */
+function formatDataPartAsText(obj: Record<string, unknown>): string {
+  const data = asObject(obj.data);
+  if (!data) {
+    // Fallback: stringify the entire obj.data even if it's a primitive/array
+    if (obj.data !== undefined && obj.data !== null) {
+      const raw = JSON.stringify(obj.data);
+      const mimeType = asString(obj.mimeType) || "application/json";
+      return `[Data (${mimeType}): ${raw.slice(0, 2000)}]`;
+    }
+    return "";
+  }
+
+  const mimeType = asString(obj.mimeType) || "application/json";
+  const raw = JSON.stringify(data);
+  // Truncate very large payloads to prevent overwhelming the agent context
+  const preview = raw.length > 2000 ? raw.slice(0, 2000) + "…" : raw;
+  return `[Data (${mimeType}): ${preview}]`;
+}
+
+/**
  * Format an A2A FilePart as human-readable text for the OpenClaw agent.
  *
  * The Gateway RPC `agent` method only accepts a `message: string` parameter,
@@ -111,6 +137,12 @@ function extractTextFragments(value: unknown): string[] {
   // Handle A2A FilePart: format as human-readable text for the agent
   if (obj.kind === "file") {
     const description = formatFilePartAsText(obj);
+    return description ? [description] : [];
+  }
+
+  // Handle A2A DataPart: serialize structured data as human-readable text
+  if (obj.kind === "data") {
+    const description = formatDataPartAsText(obj);
     return description ? [description] : [];
   }
 

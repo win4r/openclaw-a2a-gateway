@@ -9,6 +9,8 @@ An [OpenClaw](https://github.com/openclaw/openclaw) plugin that implements the [
 - Supports **bearer token authentication** for secure inter-agent communication
 - Routes inbound A2A messages to your OpenClaw agent and returns the response
 - Allows your agent to **call peer agents** via the A2A protocol
+- Handles **A2A Part types** end-to-end: `TextPart`, `FilePart` (URI + base64), and `DataPart` (structured JSON)
+- Provides an **`a2a_send_file` agent tool** so your agent can send files to peers programmatically
 
 ## Architecture
 
@@ -267,6 +269,38 @@ Then users can say things like:
 - "Send to PeerName: what's your status?"
 - "Ask PeerName to run a health check"
 
+## A2A Part Types
+
+The plugin supports all three A2A Part types for inbound messages. Since the OpenClaw Gateway RPC only accepts plain text, each Part type is serialized into a human-readable format before dispatching to the agent.
+
+| Part Type | Format Sent to Agent | Example |
+|-----------|---------------------|---------|
+| `TextPart` | Raw text | `Hello world` |
+| `FilePart` (URI) | `[Attached: report.pdf (application/pdf) → https://...]` | URI-based file reference |
+| `FilePart` (base64) | `[Attached: photo.png (image/png), inline 45KB]` | Inline file with size hint |
+| `DataPart` | `[Data (application/json): {"key":"value"}]` | Structured JSON data (truncated at 2KB) |
+
+For outbound responses, the plugin converts structured `mediaUrl`/`mediaUrls` fields from the agent payload into `FilePart` entries in the A2A response.
+
+> **Note:** Outbound FilePart generation relies on structured `mediaUrl`/`mediaUrls` fields in the agent payload. URLs embedded in plain text (e.g., markdown links) are not automatically extracted into FileParts.
+
+### a2a_send_file Agent Tool
+
+The plugin registers an `a2a_send_file` tool that agents can call to send files to peers:
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `peer` | Yes | Target peer name (must match a configured peer) |
+| `uri` | Yes | Public URL of the file to send |
+| `name` | No | Filename (e.g., `report.pdf`) |
+| `mimeType` | No | MIME type (auto-detected from extension if omitted) |
+| `text` | No | Optional text message alongside the file |
+| `agentId` | No | Route to a specific agentId on the peer (OpenClaw extension) |
+
+Example agent interaction:
+- User: "Send the test report to AWS-bot"
+- Agent calls `a2a_send_file` with `peer: "AWS-bot"`, `uri: "https://..."`, `name: "report.pdf"`
+
 ## Network Setup
 
 ### Option A: Tailscale (Recommended)
@@ -380,6 +414,7 @@ node <PLUGIN_PATH>/skill/scripts/a2a-send.mjs \
 | `security.inboundAuth` | string | `none` | `none` or `bearer` |
 | `security.token` | string | — | Token for inbound auth |
 | `routing.defaultAgentId` | string | `default` | Agent ID for inbound messages |
+| `timeouts.agentResponseTimeoutMs` | number | `300000` | Max wait time (ms) for agent response |
 
 ## Endpoints
 
@@ -530,10 +565,13 @@ Routing & orchestration (PRs welcome):
 - Rule-based routing: choose peer + target OpenClaw agentId based on message type/tags
 - Explicit multi-round conversation support (carry context via taskId/contextId)
 
-File / image transfer support (PRs welcome):
+File / image transfer enhancements (PRs welcome):
 
-- Support A2A `file` parts end-to-end (URI + optional bytes/base64)
-- Extend `a2a-send.mjs` with `--file-uri` / `--file-path` to send `kind:"file"` parts
+- ~~Support A2A `file` parts end-to-end (URI + optional bytes/base64)~~ ✅ Done
+- ~~Support A2A `data` parts (structured JSON)~~ ✅ Done
+- ~~Agent tool `a2a_send_file` for programmatic file sending~~ ✅ Done
+- Extend `a2a-send.mjs` with `--file-uri` / `--file-path` to send `kind:"file"` parts from CLI
+- Extract URLs from agent text responses (markdown links, bare URLs) into outbound FileParts
 - Plugin-side handling: fetch URI to a temp file (or pass URI through) and dispatch to the target OpenClaw agent with a safe reference
 - Security: size limits, mime allowlist, SSRF protections for URI fetches, and redaction of bytes in logs
 

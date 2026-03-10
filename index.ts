@@ -266,6 +266,7 @@ const plugin = {
           name: { type: "string" as const, description: "Filename (e.g. report.pdf)" },
           mimeType: { type: "string" as const, description: "MIME type (e.g. application/pdf). Auto-detected from extension if omitted." },
           text: { type: "string" as const, description: "Optional text message to include alongside the file" },
+          agentId: { type: "string" as const, description: "Route to a specific agentId on the peer (OpenClaw extension). Omit to use the peer's default agent." },
         },
       };
 
@@ -299,7 +300,11 @@ const plugin = {
           });
 
           try {
-            const result = await client.sendMessage(peer, { parts });
+            const message: Record<string, unknown> = { parts };
+            if (params.agentId) {
+              message.agentId = params.agentId;
+            }
+            const result = await client.sendMessage(peer, message);
             if (result.ok) {
               return {
                 content: [{ type: "text" as const, text: `File sent to ${params.peer} via A2A.\nURI: ${params.uri}\nResponse: ${JSON.stringify(result.response)}` }],

@@ -9,6 +9,8 @@
 - 支持 **Bearer Token 认证**，确保安全的跨 Agent 通信
 - 将入站 A2A 消息路由到你的 OpenClaw Agent 并返回响应
 - 你的 Agent 也可以 **主动调用对等 Agent**
+- 端到端支持 **A2A Part 类型**：`TextPart`、`FilePart`（URI + base64）、`DataPart`（结构化 JSON）
+- 提供 **`a2a_send_file` Agent 工具**，让 Agent 能以编程方式发送文件给 Peer
 
 ## 架构
 
@@ -265,6 +267,38 @@ node <插件路径>/skill/scripts/a2a-send.mjs \
 - "通过 A2A 让 PeerName 查一下系统状态"
 - "发给 PeerName：你叫什么名字？"
 
+## A2A Part 类型
+
+插件支持所有三种 A2A Part 类型的入站消息。由于 OpenClaw Gateway RPC 只接受纯文本，每种 Part 类型都会被序列化为人类可读的格式后再发送给 Agent。
+
+| Part 类型 | 发送给 Agent 的格式 | 示例 |
+|-----------|-------------------|------|
+| `TextPart` | 原始文本 | `Hello world` |
+| `FilePart`（URI） | `[Attached: report.pdf (application/pdf) → https://...]` | 基于 URI 的文件引用 |
+| `FilePart`（base64） | `[Attached: photo.png (image/png), inline 45KB]` | 内联文件，带大小提示 |
+| `DataPart` | `[Data (application/json): {"key":"value"}]` | 结构化 JSON 数据（超过 2KB 截断） |
+
+出站响应中，插件会将 Agent payload 中的结构化 `mediaUrl`/`mediaUrls` 字段转换为 A2A 响应中的 `FilePart`。
+
+> **注意：** 出站 FilePart 生成依赖 Agent payload 中的结构化 `mediaUrl`/`mediaUrls` 字段。纯文本中嵌入的 URL（如 markdown 链接）不会自动提取为 FilePart。
+
+### a2a_send_file Agent 工具
+
+插件注册了一个 `a2a_send_file` 工具，Agent 可以调用它来发送文件给 Peer：
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `peer` | 是 | 目标 Peer 名称（需匹配已配置的 Peer） |
+| `uri` | 是 | 文件的公开 URL |
+| `name` | 否 | 文件名（如 `report.pdf`） |
+| `mimeType` | 否 | MIME 类型（省略时从扩展名自动检测） |
+| `text` | 否 | 随文件一起发送的可选文本消息 |
+| `agentId` | 否 | 路由到 Peer 上特定的 agentId（OpenClaw 扩展） |
+
+示例交互：
+- 用户："把测试报告发给 AWS-bot"
+- Agent 调用 `a2a_send_file`，参数 `peer: "AWS-bot"`、`uri: "https://..."`、`name: "report.pdf"`
+
 ## 网络配置
 
 ### 方案 A：Tailscale（推荐）
@@ -378,6 +412,7 @@ node <插件路径>/skill/scripts/a2a-send.mjs \
 | `security.inboundAuth` | string | `none` | `none` 或 `bearer` |
 | `security.token` | string | — | 入站认证 Token |
 | `routing.defaultAgentId` | string | `default` | 入站消息路由到的 Agent ID |
+| `timeouts.agentResponseTimeoutMs` | number | `300000` | Agent 响应最大等待时间（毫秒） |
 
 ## 端点
 
@@ -524,10 +559,13 @@ Agent 会自动按照 skill 的流程执行。
 - 规则路由：按消息类型/标签自动选择 peer + 目标 OpenClaw agentId
 - 显式多轮对话支持（通过 taskId/contextId 传递上下文）
 
-文件 / 图像传输能力（欢迎 PR）：
+文件 / 图像传输增强（欢迎 PR）：
 
-- 端到端支持 A2A `file` parts（URI + 可选 bytes/base64）
-- 扩展 `a2a-send.mjs`：增加 `--file-uri` / `--file-path`，发送 `kind:"file"` parts
+- ~~端到端支持 A2A `file` parts（URI + 可选 bytes/base64）~~ ✅ 已完成
+- ~~支持 A2A `data` parts（结构化 JSON）~~ ✅ 已完成
+- ~~Agent 工具 `a2a_send_file`，编程式发送文件~~ ✅ 已完成
+- 扩展 `a2a-send.mjs`：增加 `--file-uri` / `--file-path`，从命令行发送 `kind:"file"` parts
+- 从 Agent 文本回复中提取 URL（markdown 链接、裸 URL）为出站 FilePart
 - 插件侧处理：下载 URI 到临时文件（或安全透传 URI），再以安全引用的方式交给目标 OpenClaw agent
 - 安全：大小限制、mime allowlist、URI fetch 的 SSRF 防护、以及日志中对 bytes 的脱敏/禁止输出
 
