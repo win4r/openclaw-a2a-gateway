@@ -52,6 +52,17 @@ export interface AgentCardConfig {
 // Gateway configuration
 // ---------------------------------------------------------------------------
 
+export interface FileSecurityConfig {
+  /** Allowed MIME type patterns (e.g. "image/*", "application/pdf"). */
+  allowedMimeTypes: string[];
+  /** Max file size in bytes for URI-based files (default 50MB). */
+  maxFileSizeBytes: number;
+  /** Max file size in bytes for inline base64 files (default 10MB). */
+  maxInlineFileSizeBytes: number;
+  /** URI hostname allowlist patterns (e.g. "*.example.com"). Empty = allow all public hosts. */
+  fileUriAllowlist: string[];
+}
+
 export interface GatewayConfig {
   agentCard: AgentCardConfig;
   server: {
@@ -65,6 +76,7 @@ export interface GatewayConfig {
   security: {
     inboundAuth: InboundAuth;
     token?: string;
+    fileSecurity: FileSecurityConfig;
   };
   routing: {
     defaultAgentId: string;

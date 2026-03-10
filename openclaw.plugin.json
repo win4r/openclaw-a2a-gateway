@@ -88,7 +88,29 @@
             "enum": ["none", "bearer"],
             "default": "none"
           },
-          "token": { "type": "string" }
+          "token": { "type": "string" },
+          "allowedMimeTypes": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Allowed MIME type patterns for file transfer (e.g. \"image/*\", \"application/pdf\")"
+          },
+          "maxFileSizeBytes": {
+            "type": "number",
+            "default": 52428800,
+            "minimum": 0,
+            "description": "Max file size in bytes for URI-based files (default 50MB)"
+          },
+          "maxInlineFileSizeBytes": {
+            "type": "number",
+            "default": 10485760,
+            "minimum": 0,
+            "description": "Max file size in bytes for inline base64 files (default 10MB)"
+          },
+          "fileUriAllowlist": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "URI hostname allowlist patterns (e.g. \"*.example.com\"). Empty allows all public hosts."
+          }
         }
       },
       "routing": {

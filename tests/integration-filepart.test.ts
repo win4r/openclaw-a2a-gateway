@@ -110,7 +110,13 @@ function makeIntegrationConfig(port: number) {
     },
     server: { host: "127.0.0.1", port },
     peers: [],
-    security: { inboundAuth: "none" },
+    security: {
+      inboundAuth: "none",
+      allowedMimeTypes: ["image/*", "application/pdf", "text/plain", "text/csv", "application/json", "audio/*", "video/*"],
+      maxFileSizeBytes: 52_428_800,
+      maxInlineFileSizeBytes: 10_485_760,
+      fileUriAllowlist: [],
+    },
     routing: { defaultAgentId: "test-agent" },
   };
 }
@@ -217,6 +223,235 @@ describe("integration: FilePart end-to-end", () => {
       assert.ok(artifacts && artifacts.length >= 1, "should have artifacts");
       const artifactFileParts = artifacts[0].parts.filter((p) => p.kind === "file");
       assert.equal(artifactFileParts.length, 1, "artifact should contain file part");
+
+      await service!.stop({} as any);
+    } finally {
+      (globalThis as any).WebSocket = originalWebSocket;
+    }
+  });
+
+  it("rejects inbound FilePart with file:// URI (SSRF)", async () => {
+    const port = 18850 + Math.floor(Math.random() * 100);
+    let service: Service | null = null;
+
+    const originalWebSocket = (globalThis as any).WebSocket;
+    (globalThis as any).WebSocket = createMediaMockWebSocketClass();
+
+    try {
+      plugin.register({
+        pluginConfig: makeIntegrationConfig(port),
+        config: { gateway: { port: 18789 } } as any,
+        runtime: {} as any,
+        logger: { info: () => {}, warn: () => {}, error: () => {} },
+        on: () => {},
+        registerGatewayMethod: () => {},
+        registerService(svc: any) { service = svc; },
+        registerTool: () => {},
+        registerHook: () => {},
+        registerHttpRoute: () => {},
+        registerChannel: () => {},
+        registerCli: () => {},
+        registerProvider: () => {},
+        registerCommand: () => {},
+        resolvePath: (p: string) => p,
+        id: "a2a-gateway",
+        name: "A2A Gateway",
+        source: "test",
+      } as any);
+
+      assert.ok(service, "service must be registered");
+      await service!.start({} as any);
+      await new Promise((r) => setTimeout(r, 500));
+
+      const jsonRpcRequest = {
+        jsonrpc: "2.0",
+        id: uuidv4(),
+        method: "message/send",
+        params: {
+          message: {
+            messageId: uuidv4(),
+            role: "user",
+            parts: [
+              { kind: "text", text: "Read this" },
+              {
+                kind: "file",
+                file: { uri: "file:///etc/passwd", mimeType: "text/plain", name: "passwd" },
+              },
+            ],
+          },
+        },
+      };
+
+      const response = await fetch(`http://127.0.0.1:${port}/a2a/jsonrpc`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(jsonRpcRequest),
+        signal: AbortSignal.timeout(30_000),
+      });
+
+      assert.equal(response.status, 200);
+      const body = await response.json() as Record<string, unknown>;
+      const result = body.result as Record<string, unknown>;
+      assert.ok(result, "result must exist");
+      const status = result.status as Record<string, unknown>;
+      assert.equal(status.state, "failed", "task should fail for file:// URI");
+
+      await service!.stop({} as any);
+    } finally {
+      (globalThis as any).WebSocket = originalWebSocket;
+    }
+  });
+
+  it("rejects inbound FilePart with disallowed MIME type", async () => {
+    const port = 18850 + Math.floor(Math.random() * 100);
+    let service: Service | null = null;
+
+    const originalWebSocket = (globalThis as any).WebSocket;
+    (globalThis as any).WebSocket = createMediaMockWebSocketClass();
+
+    try {
+      plugin.register({
+        pluginConfig: makeIntegrationConfig(port),
+        config: { gateway: { port: 18789 } } as any,
+        runtime: {} as any,
+        logger: { info: () => {}, warn: () => {}, error: () => {} },
+        on: () => {},
+        registerGatewayMethod: () => {},
+        registerService(svc: any) { service = svc; },
+        registerTool: () => {},
+        registerHook: () => {},
+        registerHttpRoute: () => {},
+        registerChannel: () => {},
+        registerCli: () => {},
+        registerProvider: () => {},
+        registerCommand: () => {},
+        resolvePath: (p: string) => p,
+        id: "a2a-gateway",
+        name: "A2A Gateway",
+        source: "test",
+      } as any);
+
+      assert.ok(service, "service must be registered");
+      await service!.start({} as any);
+      await new Promise((r) => setTimeout(r, 500));
+
+      const jsonRpcRequest = {
+        jsonrpc: "2.0",
+        id: uuidv4(),
+        method: "message/send",
+        params: {
+          message: {
+            messageId: uuidv4(),
+            role: "user",
+            parts: [
+              {
+                kind: "file",
+                file: {
+                  uri: "https://cdn.example.com/malware.exe",
+                  mimeType: "application/x-executable",
+                  name: "malware.exe",
+                },
+              },
+            ],
+          },
+        },
+      };
+
+      const response = await fetch(`http://127.0.0.1:${port}/a2a/jsonrpc`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(jsonRpcRequest),
+        signal: AbortSignal.timeout(30_000),
+      });
+
+      assert.equal(response.status, 200);
+      const body = await response.json() as Record<string, unknown>;
+      const result = body.result as Record<string, unknown>;
+      assert.ok(result, "result must exist");
+      const status = result.status as Record<string, unknown>;
+      assert.equal(status.state, "failed", "task should fail for disallowed MIME type");
+
+      await service!.stop({} as any);
+    } finally {
+      (globalThis as any).WebSocket = originalWebSocket;
+    }
+  });
+
+  it("rejects inbound inline FilePart exceeding size limit", async () => {
+    const port = 18850 + Math.floor(Math.random() * 100);
+    let service: Service | null = null;
+
+    const originalWebSocket = (globalThis as any).WebSocket;
+    (globalThis as any).WebSocket = createMediaMockWebSocketClass();
+
+    // Override config with very small inline limit for testing
+    const testConfig = makeIntegrationConfig(port);
+    (testConfig.security as any).maxInlineFileSizeBytes = 100;
+
+    try {
+      plugin.register({
+        pluginConfig: testConfig,
+        config: { gateway: { port: 18789 } } as any,
+        runtime: {} as any,
+        logger: { info: () => {}, warn: () => {}, error: () => {} },
+        on: () => {},
+        registerGatewayMethod: () => {},
+        registerService(svc: any) { service = svc; },
+        registerTool: () => {},
+        registerHook: () => {},
+        registerHttpRoute: () => {},
+        registerChannel: () => {},
+        registerCli: () => {},
+        registerProvider: () => {},
+        registerCommand: () => {},
+        resolvePath: (p: string) => p,
+        id: "a2a-gateway",
+        name: "A2A Gateway",
+        source: "test",
+      } as any);
+
+      assert.ok(service, "service must be registered");
+      await service!.start({} as any);
+      await new Promise((r) => setTimeout(r, 500));
+
+      // Create a base64 string that decodes to > 100 bytes
+      const largeBase64 = Buffer.alloc(200).toString("base64");
+
+      const jsonRpcRequest = {
+        jsonrpc: "2.0",
+        id: uuidv4(),
+        method: "message/send",
+        params: {
+          message: {
+            messageId: uuidv4(),
+            role: "user",
+            parts: [
+              {
+                kind: "file",
+                file: {
+                  bytes: largeBase64,
+                  mimeType: "image/png",
+                  name: "large.png",
+                },
+              },
+            ],
+          },
+        },
+      };
+
+      const response = await fetch(`http://127.0.0.1:${port}/a2a/jsonrpc`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(jsonRpcRequest),
+        signal: AbortSignal.timeout(30_000),
+      });
+
+      assert.equal(response.status, 200);
+      const body = await response.json() as Record<string, unknown>;
+      const result = body.result as Record<string, unknown>;
+      assert.ok(result, "result must exist");
+      const status = result.status as Record<string, unknown>;
+      assert.equal(status.state, "failed", "task should fail for oversized inline file");
 
       await service!.stop({} as any);
     } finally {

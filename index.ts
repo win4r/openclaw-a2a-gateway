@@ -24,11 +24,17 @@ import { FileTaskStore } from "./src/task-store.js";
 import { GatewayTelemetry } from "./src/telemetry.js";
 import type {
   AgentCardConfig,
+  FileSecurityConfig,
   GatewayConfig,
   InboundAuth,
   OpenClawPluginApi,
   PeerConfig,
 } from "./src/types.js";
+import {
+  validateUri,
+  validateMimeType,
+  checkUriContentLength,
+} from "./src/file-security.js";
 
 /** Build a JSON-RPC error response. */
 function jsonRpcError(id: string | number | null, code: number, message: string) {
@@ -144,6 +150,24 @@ function parseConfig(raw: unknown, resolvePath?: (nextPath: string) => string): 
 
   const inboundAuth = asString(security.inboundAuth, "none") as InboundAuth;
 
+  const defaultMimeTypes = [
+    "image/*", "application/pdf", "text/plain", "text/csv",
+    "application/json", "audio/*", "video/*",
+  ];
+  const rawAllowedMime = Array.isArray(security.allowedMimeTypes) ? security.allowedMimeTypes : [];
+  const allowedMimeTypes = rawAllowedMime.length > 0
+    ? rawAllowedMime.filter((v: unknown) => typeof v === "string") as string[]
+    : defaultMimeTypes;
+  const rawUriAllowlist = Array.isArray(security.fileUriAllowlist) ? security.fileUriAllowlist : [];
+  const fileUriAllowlist = rawUriAllowlist.filter((v: unknown) => typeof v === "string") as string[];
+
+  const fileSecurity: FileSecurityConfig = {
+    allowedMimeTypes,
+    maxFileSizeBytes: asNumber(security.maxFileSizeBytes, 52_428_800),
+    maxInlineFileSizeBytes: asNumber(security.maxInlineFileSizeBytes, 10_485_760),
+    fileUriAllowlist,
+  };
+
   return {
     agentCard: parseAgentCard(asObject(config.agentCard)),
     server: {
@@ -157,6 +181,7 @@ function parseConfig(raw: unknown, resolvePath?: (nextPath: string) => string): 
     security: {
       inboundAuth: inboundAuth === "bearer" ? "bearer" : "none",
       token: asString(security.token, ""),
+      fileSecurity,
     },
     routing: {
       defaultAgentId: asString(routing.defaultAgentId, "default"),
@@ -367,6 +392,32 @@ const plugin = {
             return {
               content: [{ type: "text" as const, text: `Peer not found: "${params.peer}". Available peers: ${available}` }],
               details: { ok: false },
+            };
+          }
+
+          // Security checks: SSRF, MIME, file size
+          const fs = config.security.fileSecurity;
+
+          const uriCheck = await validateUri(params.uri, fs);
+          if (!uriCheck.ok) {
+            return {
+              content: [{ type: "text" as const, text: `URI rejected: ${uriCheck.reason}` }],
+              details: { ok: false, reason: uriCheck.reason },
+            };
+          }
+
+          if (params.mimeType && !validateMimeType(params.mimeType, fs.allowedMimeTypes)) {
+            return {
+              content: [{ type: "text" as const, text: `MIME type rejected: "${params.mimeType}" is not in the allowed list` }],
+              details: { ok: false },
+            };
+          }
+
+          const sizeCheck = await checkUriContentLength(params.uri, fs.maxFileSizeBytes);
+          if (!sizeCheck.ok) {
+            return {
+              content: [{ type: "text" as const, text: `File too large: ${sizeCheck.reason}` }],
+              details: { ok: false, reason: sizeCheck.reason },
             };
           }
 

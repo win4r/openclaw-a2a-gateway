@@ -40,8 +40,42 @@ import {
 } from "@a2a-js/sdk/client";
 import { GrpcTransportFactory } from "@a2a-js/sdk/client/grpc";
 import { randomUUID } from "node:crypto";
+import { readFileSync, statSync } from "node:fs";
+import { extname } from "node:path";
 
-const USAGE = `Usage: node a2a-send.mjs --peer-url <URL> --token <TOKEN> --message <TEXT> [--task-id <id>] [--context-id <id>] [--non-blocking] [--wait] [--timeout-ms <ms>] [--poll-ms <ms>] [--agent-id <openclaw-agent-id>] [--help]`;
+const USAGE = `Usage: node a2a-send.mjs --peer-url <URL> --token <TOKEN> --message <TEXT> [--file-uri <url>] [--file-path <localpath>] [--task-id <id>] [--context-id <id>] [--non-blocking] [--wait] [--timeout-ms <ms>] [--poll-ms <ms>] [--agent-id <openclaw-agent-id>] [--help]`;
+
+const MAX_INLINE_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+const CLI_MIME_MAP = {
+  ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+  ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml",
+  ".pdf": "application/pdf", ".txt": "text/plain", ".csv": "text/csv",
+  ".json": "application/json", ".mp3": "audio/mpeg", ".wav": "audio/wav",
+  ".mp4": "video/mp4", ".webm": "video/webm", ".zip": "application/zip",
+};
+
+const CLI_ALLOWED_MIME_PATTERNS = [
+  "image/*", "application/pdf", "text/plain", "text/csv",
+  "application/json", "audio/*", "video/*",
+];
+
+function detectMimeFromPath(filePath) {
+  const ext = extname(filePath).toLowerCase();
+  return CLI_MIME_MAP[ext] || "application/octet-stream";
+}
+
+function isMimeAllowed(mimeType) {
+  const normalized = mimeType.toLowerCase();
+  for (const pattern of CLI_ALLOWED_MIME_PATTERNS) {
+    if (normalized === pattern) return true;
+    if (pattern.endsWith("/*")) {
+      const prefix = pattern.slice(0, -1);
+      if (normalized.startsWith(prefix)) return true;
+    }
+  }
+  return false;
+}
 
 function usageAndExit(code = 1) {
   const stream = code === 0 ? console.log : console.error;
@@ -74,11 +108,15 @@ function parseArgs() {
 
   const peerUrl = String(opts["peer-url"] || opts.peerUrl || "").trim();
   const message = String(opts.message || "").trim();
-  if (!peerUrl || !message) {
+  const fileUri = String(opts["file-uri"] || opts.fileUri || "").trim();
+  const filePath = String(opts["file-path"] || opts.filePath || "").trim();
+
+  // At least one of --message, --file-uri, --file-path required
+  if (!peerUrl || (!message && !fileUri && !filePath)) {
     usageAndExit(1);
   }
 
-  return { ...opts, peerUrl, message };
+  return { ...opts, peerUrl, message, fileUri, filePath };
 }
 
 function sleep(ms) {
@@ -159,11 +197,52 @@ async function main() {
   // Discover agent card and create client
   const client = await factory.createFromUrl(peerUrl);
 
+  // Build message parts: text + optional file
+  const outboundParts = [];
+  if (message) {
+    outboundParts.push({ kind: "text", text: message });
+  }
+
+  const fileUri = opts.fileUri;
+  const filePath = opts.filePath;
+
+  if (filePath) {
+    // Read local file, base64-encode, auto-detect MIME
+    const stat = statSync(filePath);
+    if (stat.size > MAX_INLINE_FILE_SIZE) {
+      console.error(`File too large: ${(stat.size / 1048576).toFixed(1)}MB exceeds 10MB limit`);
+      process.exit(2);
+    }
+    const mimeType = detectMimeFromPath(filePath);
+    if (!isMimeAllowed(mimeType)) {
+      console.error(`MIME type not allowed: ${mimeType}`);
+      process.exit(2);
+    }
+    const fileBuffer = readFileSync(filePath);
+    const base64 = fileBuffer.toString("base64");
+    const name = filePath.split("/").pop() || "file";
+    outboundParts.push({
+      kind: "file",
+      file: { bytes: base64, mimeType, name },
+    });
+  } else if (fileUri) {
+    // URI-based file reference
+    outboundParts.push({
+      kind: "file",
+      file: { uri: fileUri },
+    });
+  }
+
+  if (outboundParts.length === 0) {
+    console.error("No message content to send");
+    process.exit(2);
+  }
+
   const outboundMessage = {
     kind: "message",
     messageId: randomUUID(),
     role: "user",
-    parts: [{ kind: "text", text: message }],
+    parts: outboundParts,
     ...(continuationTaskId ? { taskId: continuationTaskId } : {}),
     ...(continuationContextId ? { contextId: continuationContextId } : {}),
     ...(targetAgentId ? { agentId: targetAgentId } : {}),

@@ -3,7 +3,13 @@ import { v4 as uuidv4 } from "uuid";
 import type { Message, Part, Task } from "@a2a-js/sdk";
 import type { AgentExecutor, ExecutionEventBus, RequestContext } from "@a2a-js/sdk/server";
 
-import type { GatewayConfig, OpenClawPluginApi } from "./types.js";
+import type { FileSecurityConfig, GatewayConfig, OpenClawPluginApi } from "./types.js";
+import {
+  validateMimeType,
+  validateUriSchemeAndIp,
+  checkFileSize,
+  sanitizeUriForLog,
+} from "./file-security.js";
 
 const DEFAULT_AGENT_RESPONSE_TIMEOUT_MS = 300_000;
 const GATEWAY_CONNECT_TIMEOUT_MS = 10_000;
@@ -689,11 +695,13 @@ export class OpenClawAgentExecutor implements AgentExecutor {
   private readonly api: OpenClawPluginApi;
   private readonly defaultAgentId: string;
   private readonly agentResponseTimeoutMs: number;
+  private readonly fileSecurity: FileSecurityConfig;
   private readonly taskContextByTaskId: Map<string, string>;
 
   constructor(api: OpenClawPluginApi, config: GatewayConfig) {
     this.api = api;
     this.defaultAgentId = config.routing.defaultAgentId;
+    this.fileSecurity = config.security.fileSecurity;
 
     const configured = config.timeouts?.agentResponseTimeoutMs;
     this.agentResponseTimeoutMs =
@@ -736,13 +744,41 @@ export class OpenClawAgentExecutor implements AgentExecutor {
     };
     eventBus.publish(workingTask);
 
+    // Validate inbound FileParts before dispatching to the agent
+    const fileValidationError = this.validateInboundFileParts(requestContext.userMessage);
+    if (fileValidationError) {
+      this.api.logger.warn(`a2a-gateway: inbound file validation failed: ${fileValidationError}`);
+      const rejectedMessage: Message = {
+        kind: "message",
+        messageId: uuidv4(),
+        role: "agent",
+        parts: [{ kind: "text", text: `File validation failed: ${fileValidationError}` }],
+        contextId,
+      };
+      const rejectedTask: Task = {
+        kind: "task",
+        id: taskId,
+        contextId,
+        status: {
+          state: "failed",
+          message: rejectedMessage,
+          timestamp: new Date().toISOString(),
+        },
+        history: existingHistory,
+      };
+      eventBus.publish(rejectedTask);
+      eventBus.finished();
+      return;
+    }
+
     let agentResponse: AgentResponse;
 
     try {
       agentResponse = await this.dispatchViaGatewayRpc(agentId, requestContext.userMessage, contextId);
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      this.api.logger.error(`a2a-gateway: agent dispatch failed: ${errorMessage}`);
+      const truncatedError = errorMessage.length > 500 ? errorMessage.slice(0, 500) + "..." : errorMessage;
+      this.api.logger.error(`a2a-gateway: agent dispatch failed: ${truncatedError}`);
       await this.tryHooksWakeFallback(agentId, taskId, contextId, requestContext.userMessage);
 
       // Return failed task status so the caller knows dispatch did not succeed.
@@ -930,6 +966,76 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       gatewayPassword: asString(gatewayAuth.password) || "",
       hooksToken: asString(hooks.token) || "",
     };
+  }
+
+  /**
+   * Validate inbound FileParts for scheme/IP safety, MIME, and size.
+   *
+   * Inbound validation is lighter than outbound (a2a_send_file):
+   * - Scheme + IP-literal check only (no DNS resolution — we don't fetch the URL)
+   * - MIME whitelist
+   * - Inline size limit
+   */
+  private validateInboundFileParts(userMessage: unknown): string | null {
+    const parts = this.extractFileParts(userMessage);
+    if (parts.length === 0) return null;
+
+    for (const part of parts) {
+      const file = asObject(part.file);
+      if (!file) continue;
+
+      const uri = asString(file.uri);
+      const mimeType = asString(file.mimeType);
+      const bytes = asString(file.bytes);
+
+      // URI-based file: scheme + IP literal check + MIME
+      if (uri) {
+        const schemeCheck = validateUriSchemeAndIp(uri);
+        if (schemeCheck) {
+          return `URI blocked: ${sanitizeUriForLog(uri)} — ${schemeCheck}`;
+        }
+        if (mimeType && !validateMimeType(mimeType, this.fileSecurity.allowedMimeTypes)) {
+          return `MIME type rejected: "${mimeType}"`;
+        }
+      }
+
+      // Inline base64 file: size + MIME check
+      if (bytes) {
+        const decodedSize = Math.ceil((bytes.length * 3) / 4);
+        const sizeCheck = checkFileSize(decodedSize, this.fileSecurity.maxInlineFileSizeBytes);
+        if (!sizeCheck.ok) {
+          return `Inline file too large: ${sizeCheck.reason}`;
+        }
+        if (mimeType && !validateMimeType(mimeType, this.fileSecurity.allowedMimeTypes)) {
+          return `MIME type rejected: "${mimeType}"`;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private extractFileParts(value: unknown): Array<Record<string, unknown>> {
+    const results: Array<Record<string, unknown>> = [];
+    if (!value || typeof value !== "object") return results;
+
+    const obj = value as Record<string, unknown>;
+    if (obj.kind === "file" && obj.file) {
+      results.push(obj);
+      return results;
+    }
+
+    const parts = Array.isArray(obj.parts) ? obj.parts : [];
+    for (const p of parts) {
+      if (p && typeof p === "object") {
+        const part = p as Record<string, unknown>;
+        if (part.kind === "file" && part.file) {
+          results.push(part);
+        }
+      }
+    }
+
+    return results;
   }
 
   private async tryHooksWakeFallback(
