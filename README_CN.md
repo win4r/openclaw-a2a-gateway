@@ -370,6 +370,7 @@ node <插件路径>/skill/scripts/a2a-send.mjs \
 | `agentCard.skills` | array | `[{chat}]` | Agent 提供的技能列表 |
 | `server.host` | string | `0.0.0.0` | 绑定地址 |
 | `server.port` | number | `18800` | A2A 服务端口 |
+| `storage.tasksDir` | string | `data/tasks` | 磁盘持久化任务目录 |
 | `peers` | array | `[]` | 对等 Agent 列表 |
 | `peers[].name` | string | *必填* | 对等方显示名称 |
 | `peers[].agentCardUrl` | string | *必填* | 对等方 Agent Card URL |
@@ -378,6 +379,11 @@ node <插件路径>/skill/scripts/a2a-send.mjs \
 | `security.inboundAuth` | string | `none` | `none` 或 `bearer` |
 | `security.token` | string | — | 入站认证 Token |
 | `routing.defaultAgentId` | string | `default` | 入站消息路由到的 Agent ID |
+| `limits.maxConcurrentTasks` | number | `4` | 同时运行的入站任务上限 |
+| `limits.maxQueuedTasks` | number | `100` | 超过后直接拒绝的新入站任务数上限 |
+| `observability.structuredLogs` | boolean | `true` | 输出 JSON 结构化日志 |
+| `observability.exposeMetricsEndpoint` | boolean | `true` | 通过 HTTP 暴露 telemetry 快照 |
+| `observability.metricsPath` | string | `/a2a/metrics` | telemetry 快照 HTTP 路径 |
 
 ## 端点
 
@@ -385,6 +391,8 @@ node <插件路径>/skill/scripts/a2a-send.mjs \
 |------|------|------|
 | `/.well-known/agent-card.json` | GET | Agent Card（发现） |
 | `/a2a/jsonrpc` | POST | A2A JSON-RPC（message/send） |
+| `/a2a/rest` | POST | A2A REST 传输 |
+| `/a2a/metrics` | GET | JSON telemetry 快照（启用时） |
 
 ## 常见问题
 

@@ -7,9 +7,10 @@
  */
 
 import type { Server } from "node:http";
+import path from "node:path";
 
 import { AGENT_CARD_PATH } from "@a2a-js/sdk";
-import { DefaultRequestHandler, InMemoryTaskStore } from "@a2a-js/sdk/server";
+import { DefaultRequestHandler } from "@a2a-js/sdk/server";
 import { UserBuilder, agentCardHandler, jsonRpcHandler, restHandler } from "@a2a-js/sdk/server/express";
 import { grpcService, A2AService, UserBuilder as GrpcUserBuilder } from "@a2a-js/sdk/server/grpc";
 import { Server as GrpcServer, ServerCredentials, status as GrpcStatus } from "@grpc/grpc-js";
@@ -18,6 +19,9 @@ import express from "express";
 import { buildAgentCard } from "./src/agent-card.js";
 import { A2AClient } from "./src/client.js";
 import { OpenClawAgentExecutor } from "./src/executor.js";
+import { QueueingAgentExecutor } from "./src/queueing-executor.js";
+import { FileTaskStore } from "./src/task-store.js";
+import { GatewayTelemetry } from "./src/telemetry.js";
 import type {
   AgentCardConfig,
   GatewayConfig,
@@ -53,6 +57,29 @@ function asNumber(value: unknown, fallback: number): number {
   }
 
   return fallback;
+}
+
+function asBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  return fallback;
+}
+
+function normalizeHttpPath(value: string, fallback: string): string {
+  const trimmed = value.trim() || fallback;
+  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+}
+
+function resolveConfiguredPath(
+  value: unknown,
+  fallback: string,
+  resolvePath?: (nextPath: string) => string,
+): string {
+  const configured = asString(value, "").trim() || fallback;
+  const resolved = resolvePath ? resolvePath(configured) : configured;
+  return path.isAbsolute(resolved) ? resolved : path.resolve(resolved);
 }
 
 function parseAgentCard(raw: Record<string, unknown>): AgentCardConfig {
@@ -105,11 +132,14 @@ function parsePeers(raw: unknown): PeerConfig[] {
   return peers;
 }
 
-function parseConfig(raw: unknown): GatewayConfig {
+function parseConfig(raw: unknown, resolvePath?: (nextPath: string) => string): GatewayConfig {
   const config = asObject(raw);
   const server = asObject(config.server);
+  const storage = asObject(config.storage);
   const security = asObject(config.security);
   const routing = asObject(config.routing);
+  const limits = asObject(config.limits);
+  const observability = asObject(config.observability);
   const timeouts = asObject(config.timeouts);
 
   const inboundAuth = asString(security.inboundAuth, "none") as InboundAuth;
@@ -120,6 +150,9 @@ function parseConfig(raw: unknown): GatewayConfig {
       host: asString(server.host, "0.0.0.0"),
       port: asNumber(server.port, 18800),
     },
+    storage: {
+      tasksDir: resolveConfiguredPath(storage.tasksDir, "data/tasks", resolvePath),
+    },
     peers: parsePeers(config.peers),
     security: {
       inboundAuth: inboundAuth === "bearer" ? "bearer" : "none",
@@ -127,6 +160,15 @@ function parseConfig(raw: unknown): GatewayConfig {
     },
     routing: {
       defaultAgentId: asString(routing.defaultAgentId, "default"),
+    },
+    limits: {
+      maxConcurrentTasks: Math.max(1, Math.floor(asNumber(limits.maxConcurrentTasks, 4))),
+      maxQueuedTasks: Math.max(0, Math.floor(asNumber(limits.maxQueuedTasks, 100))),
+    },
+    observability: {
+      structuredLogs: asBoolean(observability.structuredLogs, true),
+      exposeMetricsEndpoint: asBoolean(observability.exposeMetricsEndpoint, true),
+      metricsPath: normalizeHttpPath(asString(observability.metricsPath, "/a2a/metrics"), "/a2a/metrics"),
     },
     timeouts: {
       agentResponseTimeoutMs: asNumber(timeouts.agentResponseTimeoutMs, 300_000),
@@ -148,10 +190,17 @@ const plugin = {
   description: "OpenClaw plugin that serves A2A v0.3.0 endpoints",
 
   register(api: OpenClawPluginApi) {
-    const config = parseConfig(api.pluginConfig);
+    const config = parseConfig(api.pluginConfig, api.resolvePath?.bind(api));
+    const telemetry = new GatewayTelemetry(api.logger, {
+      structuredLogs: config.observability.structuredLogs,
+    });
     const client = new A2AClient();
-    const taskStore = new InMemoryTaskStore();
-    const executor = new OpenClawAgentExecutor(api, config);
+    const taskStore = new FileTaskStore(config.storage.tasksDir);
+    const executor = new QueueingAgentExecutor(
+      new OpenClawAgentExecutor(api, config),
+      telemetry,
+      config.limits,
+    );
     const agentCard = buildAgentCard(config);
 
     // SDK expects userBuilder(req) -> Promise<User>
@@ -162,6 +211,7 @@ const plugin = {
         const header = Array.isArray(authHeader) ? authHeader[0] : authHeader;
         const expected = `Bearer ${config.security.token}`;
         if (!header || header !== expected) {
+          telemetry.recordSecurityRejection("http", "invalid or missing bearer token");
           throw jsonRpcError(null, -32000, "Unauthorized: invalid or missing bearer token");
         }
       }
@@ -170,8 +220,16 @@ const plugin = {
 
     const requestHandler = new DefaultRequestHandler(agentCard, taskStore, executor);
 
-
     const app = express();
+    const createHttpMetricsMiddleware =
+      (route: "jsonrpc" | "rest" | "metrics") =>
+      (_req: express.Request, res: express.Response, next: express.NextFunction) => {
+        const startedAt = Date.now();
+        res.on("finish", () => {
+          telemetry.recordInboundHttp(route, res.statusCode, Date.now() - startedAt);
+        });
+        next();
+      };
 
     const cardPath = normalizeCardPath();
     const cardEndpointHandler = agentCardHandler({ agentCardProvider: requestHandler });
@@ -183,6 +241,7 @@ const plugin = {
 
     app.use(
       "/a2a/jsonrpc",
+      createHttpMetricsMiddleware("jsonrpc"),
       jsonRpcHandler({
         requestHandler,
         userBuilder,
@@ -210,15 +269,32 @@ const plugin = {
 
     app.use(
       "/a2a/rest",
+      createHttpMetricsMiddleware("rest"),
       restHandler({
         requestHandler,
         userBuilder,
       })
     );
 
+    if (config.observability.exposeMetricsEndpoint) {
+      app.get(
+        config.observability.metricsPath,
+        createHttpMetricsMiddleware("metrics"),
+        (_req, res) => {
+          res.json(telemetry.snapshot());
+        },
+      );
+    }
+
     let server: Server | null = null;
     let grpcServer: GrpcServer | null = null;
     const grpcPort = config.server.port + 1;
+
+    api.registerGatewayMethod("a2a.metrics", ({ respond }) => {
+      respond(true, {
+        metrics: telemetry.snapshot(),
+      });
+    });
 
     api.registerGatewayMethod("a2a.send", ({ params, respond }) => {
       const payload = asObject(params);
@@ -231,9 +307,16 @@ const plugin = {
         return;
       }
 
+      const startedAt = Date.now();
       client
         .sendMessage(peer, message)
         .then((result) => {
+          telemetry.recordOutboundRequest(
+            peer.name,
+            result.ok,
+            result.statusCode,
+            Date.now() - startedAt,
+          );
           if (result.ok) {
             respond(true, {
               statusCode: result.statusCode,
@@ -248,6 +331,7 @@ const plugin = {
           });
         })
         .catch((error) => {
+          telemetry.recordOutboundRequest(peer.name, false, 500, Date.now() - startedAt);
           respond(false, { error: String(error?.message || error) });
         });
     });
@@ -270,6 +354,9 @@ const plugin = {
             api.logger.info(
               `a2a-gateway: HTTP listening on ${config.server.host}:${config.server.port}`
             );
+            api.logger.info(
+              `a2a-gateway: durable task store at ${config.storage.tasksDir}; concurrency=${config.limits.maxConcurrentTasks}; queue=${config.limits.maxQueuedTasks}`
+            );
             resolve();
           });
 
@@ -288,6 +375,7 @@ const plugin = {
               const header = Array.isArray(values) && values.length > 0 ? String(values[0]) : "";
               const expected = `Bearer ${config.security.token}`;
               if (!header || header !== expected) {
+                telemetry.recordSecurityRejection("grpc", "invalid or missing bearer token");
                 const err: any = new Error("Unauthorized: invalid or missing bearer token");
                 err.code = GrpcStatus.UNAUTHENTICATED;
                 throw err;

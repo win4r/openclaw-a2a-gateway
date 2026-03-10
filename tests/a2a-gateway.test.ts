@@ -217,6 +217,7 @@ describe("zero-config install (issue #7)", () => {
     const harness = createHarness({});
     assert.ok(harness.service, "service should be registered even with empty config");
     assert.ok(harness.methods.has("a2a.send"), "a2a.send method should be registered");
+    assert.ok(harness.methods.has("a2a.metrics"), "a2a.metrics method should be registered");
   });
 
   it("builds Agent Card with defaults when agentCard fields are missing", () => {

@@ -372,6 +372,7 @@ node <PLUGIN_PATH>/skill/scripts/a2a-send.mjs \
 | `agentCard.skills` | array | `[{chat}]` | List of skills this agent offers |
 | `server.host` | string | `0.0.0.0` | Bind address |
 | `server.port` | number | `18800` | A2A server port |
+| `storage.tasksDir` | string | `data/tasks` | Durable on-disk task store path |
 | `peers` | array | `[]` | List of peer agents |
 | `peers[].name` | string | *required* | Peer display name |
 | `peers[].agentCardUrl` | string | *required* | URL to peer's Agent Card |
@@ -380,6 +381,11 @@ node <PLUGIN_PATH>/skill/scripts/a2a-send.mjs \
 | `security.inboundAuth` | string | `none` | `none` or `bearer` |
 | `security.token` | string | — | Token for inbound auth |
 | `routing.defaultAgentId` | string | `default` | Agent ID for inbound messages |
+| `limits.maxConcurrentTasks` | number | `4` | Max active inbound agent runs |
+| `limits.maxQueuedTasks` | number | `100` | Max queued inbound tasks before rejection |
+| `observability.structuredLogs` | boolean | `true` | Emit JSON structured logs |
+| `observability.exposeMetricsEndpoint` | boolean | `true` | Expose telemetry snapshot over HTTP |
+| `observability.metricsPath` | string | `/a2a/metrics` | HTTP path for telemetry snapshot |
 
 ## Endpoints
 
@@ -387,6 +393,8 @@ node <PLUGIN_PATH>/skill/scripts/a2a-send.mjs \
 |----------|--------|-------------|
 | `/.well-known/agent-card.json` | GET | Agent Card (discovery) *(legacy alias: `/.well-known/agent.json`)* |
 | `/a2a/jsonrpc` | POST | A2A JSON-RPC (message/send) |
+| `/a2a/rest` | POST | A2A REST transport |
+| `/a2a/metrics` | GET | JSON telemetry snapshot (if enabled) |
 
 ## Troubleshooting
 
@@ -552,4 +560,3 @@ MIT
 <img src="https://github.com/win4r/AISuperDomain/assets/42172631/d6dcfd1a-60fa-4b6f-9d5e-1482150a7d95" width="186" height="300">
 <img src="https://github.com/win4r/AISuperDomain/assets/42172631/7568cf78-c8ba-4182-aa96-d524d903f2bc" width="214.8" height="291">
 <img src="https://github.com/win4r/AISuperDomain/assets/42172631/fefe535c-8153-4046-bfb4-e65eacbf7a33" width="207" height="281">
-
