@@ -1,4 +1,4 @@
-# OpenClaw A2A Gateway Plugin
+# 🦞OpenClaw A2A Gateway Plugin
 
 An [OpenClaw](https://github.com/openclaw/openclaw) plugin that implements the [A2A (Agent-to-Agent) v0.3.0 protocol](https://github.com/google/A2A), enabling OpenClaw agents to communicate with each other across different servers.
 
