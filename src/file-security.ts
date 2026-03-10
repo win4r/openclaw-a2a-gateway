@@ -1,8 +1,8 @@
 /**
  * A2A Gateway — File security: SSRF protection, MIME whitelist, size limits, log sanitization.
  *
- * All functions are pure or async-pure with no side effects beyond DNS resolution
- * and HTTP HEAD requests. Uses only Node.js built-in modules.
+ * All functions are pure or async-pure with no side effects beyond DNS resolution.
+ * Uses only Node.js built-in modules.
  */
 
 import dns from "node:dns";
@@ -18,6 +18,34 @@ import type { FileSecurityConfig } from "./types.js";
 export interface FileSecurityResult {
   ok: boolean;
   reason?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Strip brackets from IPv6 hostname as returned by URL.hostname.
+ * URL.hostname returns "[::1]" for IPv6 literals — net.isIP() needs "::1".
+ */
+function stripBrackets(hostname: string): string {
+  if (hostname.startsWith("[") && hostname.endsWith("]")) {
+    return hostname.slice(1, -1);
+  }
+  return hostname;
+}
+
+/**
+ * Decode base64 size accounting for padding characters.
+ * Standard base64: every 4 chars encode 3 bytes, padding '=' reduces output.
+ */
+export function decodedBase64Size(base64: string): number {
+  const len = base64.length;
+  if (len === 0) return 0;
+  let padding = 0;
+  if (base64[len - 1] === "=") padding += 1;
+  if (len > 1 && base64[len - 2] === "=") padding += 1;
+  return Math.floor((len * 3) / 4) - padding;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,10 +163,13 @@ export function validateUriSchemeAndIp(uri: string): string | null {
     return `Blocked scheme: ${scheme.replace(":", "")}`;
   }
 
-  const hostname = parsed.hostname;
-  if (!hostname) {
+  const rawHostname = parsed.hostname;
+  if (!rawHostname) {
     return "URI has no hostname";
   }
+
+  // Strip brackets for IPv6 literals: URL.hostname returns "[::1]"
+  const hostname = stripBrackets(rawHostname);
 
   // Only check IP literals (not hostnames — we don't DNS-resolve for inbound)
   if (net.isIP(hostname) && isPrivateIp(hostname)) {
@@ -154,11 +185,15 @@ const defaultResolveFn: DnsResolveFn = (hostname: string) =>
   dns.promises.lookup(hostname, { family: 0 });
 
 /**
- * Validate a URI for SSRF safety.
+ * Validate a URI for SSRF safety (outbound — full DNS resolution).
  * - Only http/https schemes allowed
  * - Resolves hostname via DNS, blocks private IPs
  * - Checks hostname against allowlist (if configured)
  * - Optional resolveFn for testing
+ *
+ * NOTE: This function only validates. It does NOT fetch the URI.
+ * Do not add a separate fetch/HEAD step that re-resolves DNS — that
+ * creates a TOCTOU / DNS rebinding vulnerability.
  */
 export async function validateUri(
   uri: string,
@@ -178,10 +213,13 @@ export async function validateUri(
     return { ok: false, reason: `Blocked scheme: ${scheme.replace(":", "")}` };
   }
 
-  const hostname = parsed.hostname;
-  if (!hostname) {
+  const rawHostname = parsed.hostname;
+  if (!rawHostname) {
     return { ok: false, reason: "URI has no hostname" };
   }
+
+  // Strip brackets for IPv6 literals
+  const hostname = stripBrackets(rawHostname);
 
   // Allowlist check (if configured)
   if (config.fileUriAllowlist.length > 0) {
@@ -230,14 +268,27 @@ function matchHostname(hostname: string, pattern: string): boolean {
 // ---------------------------------------------------------------------------
 
 /**
+ * Strip MIME parameters (e.g. ";charset=utf-8") and return the base media type.
+ */
+function stripMimeParams(mimeType: string): string {
+  const semicolonIdx = mimeType.indexOf(";");
+  if (semicolonIdx >= 0) {
+    return mimeType.slice(0, semicolonIdx).trim();
+  }
+  return mimeType.trim();
+}
+
+/**
  * Check if a MIME type matches any of the allowed patterns.
  * Supports wildcard subtype: "image/*" matches "image/png".
+ * MIME parameters (;charset=...) are stripped before matching.
  */
 export function validateMimeType(mimeType: string, allowedPatterns: string[]): boolean {
-  const normalized = mimeType.toLowerCase().trim();
+  const normalized = stripMimeParams(mimeType).toLowerCase();
+  if (!normalized) return false;
 
   for (const pattern of allowedPatterns) {
-    const p = pattern.toLowerCase().trim();
+    const p = stripMimeParams(pattern).toLowerCase();
 
     // Exact match
     if (normalized === p) return true;
@@ -261,34 +312,6 @@ export function checkFileSize(sizeBytes: number, maxBytes: number): FileSecurity
     const sizeMB = (sizeBytes / 1_048_576).toFixed(1);
     const maxMB = (maxBytes / 1_048_576).toFixed(1);
     return { ok: false, reason: `File size ${sizeMB}MB exceeds limit ${maxMB}MB` };
-  }
-  return { ok: true };
-}
-
-/**
- * Send an HTTP HEAD request to check Content-Length.
- * Fail-open: if HEAD fails or no Content-Length header, returns ok.
- */
-export async function checkUriContentLength(
-  uri: string,
-  maxBytes: number,
-): Promise<FileSecurityResult> {
-  try {
-    const response = await fetch(uri, {
-      method: "HEAD",
-      signal: AbortSignal.timeout(5_000),
-    });
-    const cl = response.headers.get("content-length");
-    if (cl) {
-      const size = parseInt(cl, 10);
-      if (Number.isFinite(size) && size > maxBytes) {
-        const sizeMB = (size / 1_048_576).toFixed(1);
-        const maxMB = (maxBytes / 1_048_576).toFixed(1);
-        return { ok: false, reason: `File size ${sizeMB}MB exceeds limit ${maxMB}MB` };
-      }
-    }
-  } catch {
-    // Fail-open: cannot determine size, allow the request
   }
   return { ok: true };
 }
@@ -332,14 +355,31 @@ export function detectMimeType(filePath: string): string {
 // Log sanitization
 // ---------------------------------------------------------------------------
 
-/** Truncate a URI for safe logging. */
+/**
+ * Sanitize a URI for safe logging: strip credentials and query string, then truncate.
+ * Prevents leaking tokens, API keys, or signed URL parameters into logs.
+ */
 export function sanitizeUriForLog(uri: string, maxLength = 200): string {
-  if (uri.length <= maxLength) return uri;
-  return uri.slice(0, maxLength) + "...";
+  try {
+    const parsed = new URL(uri);
+    // Remove credentials
+    parsed.username = "";
+    parsed.password = "";
+    // Remove query string and fragment (may contain tokens)
+    parsed.search = "";
+    parsed.hash = "";
+    const cleaned = parsed.toString();
+    if (cleaned.length <= maxLength) return cleaned;
+    return cleaned.slice(0, maxLength) + "...";
+  } catch {
+    // If URI is not parseable, just truncate
+    if (uri.length <= maxLength) return uri;
+    return uri.slice(0, maxLength) + "...";
+  }
 }
 
 /**
- * Create a log-safe copy of a FilePart: strip base64 bytes, truncate URI.
+ * Create a log-safe copy of a FilePart: strip base64 bytes, sanitize URI.
  * Never mutates the original.
  */
 export function sanitizeFilePartForLog(part: Record<string, unknown>): Record<string, unknown> {

@@ -10,9 +10,10 @@ import { describe, it } from "node:test";
 import {
   isPrivateIp,
   validateUri,
+  validateUriSchemeAndIp,
   validateMimeType,
   checkFileSize,
-  checkUriContentLength,
+  decodedBase64Size,
   detectMimeType,
   sanitizeUriForLog,
   sanitizeFilePartForLog,
@@ -99,6 +100,65 @@ describe("isPrivateIp", () => {
 });
 
 // ---------------------------------------------------------------------------
+// validateUriSchemeAndIp (inbound — IPv6 bracket handling)
+// ---------------------------------------------------------------------------
+
+describe("validateUriSchemeAndIp", () => {
+  it("blocks http://[::1]/x (IPv6 loopback with brackets)", () => {
+    const result = validateUriSchemeAndIp("http://[::1]/x");
+    assert.notEqual(result, null);
+    assert.match(result!, /private IP/i);
+  });
+
+  it("blocks http://[::ffff:127.0.0.1]/x (IPv4-mapped IPv6 with brackets)", () => {
+    const result = validateUriSchemeAndIp("http://[::ffff:127.0.0.1]/x");
+    assert.notEqual(result, null);
+    assert.match(result!, /private IP/i);
+  });
+
+  it("allows http://[2607:f8b0::1]/x (public IPv6 with brackets)", () => {
+    const result = validateUriSchemeAndIp("http://[2607:f8b0::1]/x");
+    assert.equal(result, null);
+  });
+
+  it("blocks file:// scheme", () => {
+    const result = validateUriSchemeAndIp("file:///etc/passwd");
+    assert.notEqual(result, null);
+    assert.match(result!, /Blocked scheme/);
+  });
+
+  it("allows normal hostname (no DNS check)", () => {
+    const result = validateUriSchemeAndIp("https://example.com/file.txt");
+    assert.equal(result, null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// decodedBase64Size
+// ---------------------------------------------------------------------------
+
+describe("decodedBase64Size", () => {
+  it("handles no padding", () => {
+    // "YWJj" decodes to "abc" = 3 bytes
+    assert.equal(decodedBase64Size("YWJj"), 3);
+  });
+
+  it("handles single padding", () => {
+    // "YQ==" decodes to "a" = 1 byte
+    assert.equal(decodedBase64Size("YQ=="), 1);
+  });
+
+  it("handles double padding", () => {
+    // "YWI=" decodes to "ab" = 2 bytes
+    assert.equal(decodedBase64Size("YWI="), 2);
+  });
+
+  it("handles empty string", () => {
+    assert.equal(decodedBase64Size(""), 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // validateUri
 // ---------------------------------------------------------------------------
 
@@ -173,6 +233,18 @@ describe("validateUri", () => {
     assert.equal(result.ok, false);
     assert.match(result.reason!, /DNS resolution failed/);
   });
+
+  it("blocks IPv6 loopback with brackets in URL", async () => {
+    const result = await validateUri("http://[::1]/file.txt", defaultConfig());
+    assert.equal(result.ok, false);
+    assert.match(result.reason!, /private IP/i);
+  });
+
+  it("blocks IPv4-mapped IPv6 with brackets", async () => {
+    const result = await validateUri("http://[::ffff:127.0.0.1]/file.txt", defaultConfig());
+    assert.equal(result.ok, false);
+    assert.match(result.reason!, /private IP/i);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -202,6 +274,14 @@ describe("validateMimeType", () => {
 
   it("rejects empty MIME type", () => {
     assert.equal(validateMimeType("", patterns), false);
+  });
+
+  it("strips MIME parameters before matching (wildcard)", () => {
+    assert.equal(validateMimeType("image/png;charset=utf-8", patterns), true);
+  });
+
+  it("strips MIME parameters before matching (exact)", () => {
+    assert.equal(validateMimeType("text/plain; charset=utf-8", patterns), true);
   });
 });
 
@@ -262,22 +342,37 @@ describe("detectMimeType", () => {
 // ---------------------------------------------------------------------------
 
 describe("sanitizeUriForLog", () => {
-  it("returns short URI unchanged", () => {
+  it("returns short URI without query unchanged", () => {
     const uri = "https://example.com/file.png";
     assert.equal(sanitizeUriForLog(uri), uri);
   });
 
-  it("truncates long URI", () => {
+  it("strips query string (may contain tokens)", () => {
+    const uri = "https://cdn.example.com/file.pdf?token=secret123&sig=abc";
+    const result = sanitizeUriForLog(uri);
+    assert.ok(!result.includes("secret123"));
+    assert.ok(!result.includes("sig=abc"));
+    assert.ok(result.includes("cdn.example.com/file.pdf"));
+  });
+
+  it("strips credentials from URI", () => {
+    const uri = "https://user:password@cdn.example.com/file.pdf";
+    const result = sanitizeUriForLog(uri);
+    assert.ok(!result.includes("user:password"));
+    assert.ok(result.includes("cdn.example.com/file.pdf"));
+  });
+
+  it("truncates long URI after cleaning", () => {
     const uri = "https://example.com/" + "a".repeat(300);
     const result = sanitizeUriForLog(uri);
-    assert.equal(result.length, 203); // 200 + "..."
+    assert.ok(result.length <= 203); // 200 + "..."
     assert.ok(result.endsWith("..."));
   });
 
-  it("respects custom maxLength", () => {
-    const uri = "https://example.com/abcdefghij";
-    const result = sanitizeUriForLog(uri, 10);
-    assert.equal(result.length, 13); // 10 + "..."
+  it("handles unparseable URI by truncating", () => {
+    const uri = "not-a-url-" + "x".repeat(300);
+    const result = sanitizeUriForLog(uri);
+    assert.ok(result.length <= 203);
   });
 });
 

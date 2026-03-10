@@ -8,6 +8,7 @@ import {
   validateMimeType,
   validateUriSchemeAndIp,
   checkFileSize,
+  decodedBase64Size,
   sanitizeUriForLog,
 } from "./file-security.js";
 
@@ -120,7 +121,7 @@ function formatFilePartAsText(obj: Record<string, unknown>): string {
   // Base64-encoded inline file
   const bytes = asString(file.bytes);
   if (bytes) {
-    const sizeKB = Math.ceil((bytes.length * 3) / 4 / 1024);
+    const sizeKB = Math.ceil(decodedBase64Size(bytes) / 1024);
     return `[Attached: ${name} (${mimeType}), inline ${sizeKB}KB]`;
   }
 
@@ -1001,7 +1002,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
 
       // Inline base64 file: size + MIME check
       if (bytes) {
-        const decodedSize = Math.ceil((bytes.length * 3) / 4);
+        const decodedSize = decodedBase64Size(bytes);
         const sizeCheck = checkFileSize(decodedSize, this.fileSecurity.maxInlineFileSizeBytes);
         if (!sizeCheck.ok) {
           return `Inline file too large: ${sizeCheck.reason}`;

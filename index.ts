@@ -33,7 +33,6 @@ import type {
 import {
   validateUri,
   validateMimeType,
-  checkUriContentLength,
 } from "./src/file-security.js";
 
 /** Build a JSON-RPC error response. */
@@ -410,14 +409,6 @@ const plugin = {
             return {
               content: [{ type: "text" as const, text: `MIME type rejected: "${params.mimeType}" is not in the allowed list` }],
               details: { ok: false },
-            };
-          }
-
-          const sizeCheck = await checkUriContentLength(params.uri, fs.maxFileSizeBytes);
-          if (!sizeCheck.ok) {
-            return {
-              content: [{ type: "text" as const, text: `File too large: ${sizeCheck.reason}` }],
-              details: { ok: false, reason: sizeCheck.reason },
             };
           }
 

@@ -112,10 +112,6 @@ function makeIntegrationConfig(port: number) {
     peers: [],
     security: {
       inboundAuth: "none",
-      allowedMimeTypes: ["image/*", "application/pdf", "text/plain", "text/csv", "application/json", "audio/*", "video/*"],
-      maxFileSizeBytes: 52_428_800,
-      maxInlineFileSizeBytes: 10_485_760,
-      fileUriAllowlist: [],
     },
     routing: { defaultAgentId: "test-agent" },
   };
@@ -386,7 +382,7 @@ describe("integration: FilePart end-to-end", () => {
 
     // Override config with very small inline limit for testing
     const testConfig = makeIntegrationConfig(port);
-    (testConfig.security as any).maxInlineFileSizeBytes = 100;
+    (testConfig.security as any).maxInlineFileSizeBytes = 100;  // flat field read by parseConfig
 
     try {
       plugin.register({
