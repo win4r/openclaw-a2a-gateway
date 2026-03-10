@@ -48,6 +48,13 @@
           "port": { "type": "number", "default": 18800 }
         }
       },
+      "storage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tasksDir": { "type": "string", "default": "data/tasks" }
+        }
+      },
       "peers": {
         "type": "array",
         "items": {
@@ -91,6 +98,40 @@
           "defaultAgentId": {
             "type": "string",
             "default": "default"
+          }
+        }
+      },
+      "limits": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "maxConcurrentTasks": {
+            "type": "number",
+            "default": 4,
+            "minimum": 1
+          },
+          "maxQueuedTasks": {
+            "type": "number",
+            "default": 100,
+            "minimum": 0
+          }
+        }
+      },
+      "observability": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "structuredLogs": {
+            "type": "boolean",
+            "default": true
+          },
+          "exposeMetricsEndpoint": {
+            "type": "boolean",
+            "default": true
+          },
+          "metricsPath": {
+            "type": "string",
+            "default": "/a2a/metrics"
           }
         }
       },

@@ -58,6 +58,9 @@ export interface GatewayConfig {
     host: string;
     port: number;
   };
+  storage: {
+    tasksDir: string;
+  };
   peers: PeerConfig[];
   security: {
     inboundAuth: InboundAuth;
@@ -65,6 +68,15 @@ export interface GatewayConfig {
   };
   routing: {
     defaultAgentId: string;
+  };
+  limits: {
+    maxConcurrentTasks: number;
+    maxQueuedTasks: number;
+  };
+  observability: {
+    structuredLogs: boolean;
+    exposeMetricsEndpoint: boolean;
+    metricsPath: string;
   };
   timeouts?: {
     /**
