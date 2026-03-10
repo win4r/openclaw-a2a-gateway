@@ -5,6 +5,7 @@
  * Usage:
  *   node a2a-send.mjs --peer-url <PEER_BASE_URL> --token <TOKEN> --message "Hello!"
  *   node a2a-send.mjs --peer-url http://100.76.43.74:18800 --token abc123 --message "What is your name?"
+ *   node a2a-send.mjs --peer-url <URL> --token <TOKEN> --message "Follow up" --task-id <TASK_ID> --context-id <CONTEXT_ID>
  *
  * Async task mode (recommended for long-running prompts):
  *   node a2a-send.mjs --peer-url <URL> --token <TOKEN> --non-blocking --wait --message "..."
@@ -13,10 +14,13 @@
  *   --peer-url <url>        Peer base URL, e.g. http://100.76.43.74:18800
  *   --token <token>         Bearer token for the peer inbound auth
  *   --message <text>        Text to send
+ *   --task-id <id>          Reuse an existing A2A task for follow-up turns
+ *   --context-id <id>       Reuse an existing A2A context for multi-round conversation routing
  *   --non-blocking          Send with configuration.blocking=false (returns quickly with a Task)
  *   --wait                  When non-blocking, poll tasks/get until terminal state
  *   --timeout-ms <ms>       Max wait time for --wait (default: 600000)
  *   --poll-ms <ms>          Poll interval for --wait (default: 1000)
+ *   --help                  Show this help text
  *
  * Optional (OpenClaw extension):
  *   --agent-id <agentId>    Route the inbound A2A request to a specific OpenClaw agentId on the peer.
@@ -37,10 +41,11 @@ import {
 import { GrpcTransportFactory } from "@a2a-js/sdk/client/grpc";
 import { randomUUID } from "node:crypto";
 
+const USAGE = `Usage: node a2a-send.mjs --peer-url <URL> --token <TOKEN> --message <TEXT> [--task-id <id>] [--context-id <id>] [--non-blocking] [--wait] [--timeout-ms <ms>] [--poll-ms <ms>] [--agent-id <openclaw-agent-id>] [--help]`;
+
 function usageAndExit(code = 1) {
-  console.error(
-    "Usage: node a2a-send.mjs --peer-url <URL> --token <TOKEN> --message <TEXT> [--non-blocking] [--wait] [--timeout-ms <ms>] [--poll-ms <ms>] [--agent-id <openclaw-agent-id>]"
-  );
+  const stream = code === 0 ? console.log : console.error;
+  stream(USAGE);
   process.exit(code);
 }
 
@@ -61,6 +66,10 @@ function parseArgs() {
     } else {
       opts[key] = true;
     }
+  }
+
+  if (opts.help || opts.h) {
+    usageAndExit(0);
   }
 
   const peerUrl = String(opts["peer-url"] || opts.peerUrl || "").trim();
@@ -93,6 +102,8 @@ async function main() {
   const token = typeof opts.token === "string" ? opts.token : "";
   const message = opts.message;
   const targetAgentId = (opts["agent-id"] || opts.agentId || "").toString().trim();
+  const continuationTaskId = (opts["task-id"] || opts.taskId || "").toString().trim().slice(0, 256);
+  const continuationContextId = (opts["context-id"] || opts.contextId || "").toString().trim().slice(0, 256);
 
   const nonBlocking = Boolean(opts["non-blocking"] || opts.nonBlocking);
   const wait = Boolean(opts.wait);
@@ -153,6 +164,8 @@ async function main() {
     messageId: randomUUID(),
     role: "user",
     parts: [{ kind: "text", text: message }],
+    ...(continuationTaskId ? { taskId: continuationTaskId } : {}),
+    ...(continuationContextId ? { contextId: continuationContextId } : {}),
     ...(targetAgentId ? { agentId: targetAgentId } : {}),
   };
 
@@ -165,6 +178,19 @@ async function main() {
 
   const result = await client.sendMessage(sendParams, requestOptions);
 
+  const printTaskHandle = (task) => {
+    if (!task || typeof task !== "object") return;
+    const responseTaskId = typeof task.id === "string" ? task.id : typeof task.taskId === "string" ? task.taskId : "";
+    if (!responseTaskId) return;
+    const responseContextId =
+      typeof task.contextId === "string"
+        ? task.contextId
+        : typeof continuationContextId === "string" && continuationContextId
+          ? continuationContextId
+          : "";
+    console.log(`[task] id=${responseTaskId} contextId=${responseContextId || "-"}`);
+  };
+
   // If the user didn't request waiting, print the immediate response.
   if (!nonBlocking || !wait) {
     if (result?.kind === "message") {
@@ -173,6 +199,7 @@ async function main() {
       return;
     }
     if (result?.kind === "task") {
+      printTaskHandle(result);
       const text = extractFirstTextParts(result.status?.message?.parts);
       console.log(text || JSON.stringify(result, null, 2));
       return;
@@ -182,18 +209,22 @@ async function main() {
   }
 
   // Async task mode: wait for terminal task state via tasks/get.
-  const taskId = result?.kind === "task" ? result.id : result?.taskId;
-  if (!taskId || typeof taskId !== "string") {
+  const responseTaskId = result?.kind === "task" ? result.id : result?.taskId;
+  if (!responseTaskId || typeof responseTaskId !== "string") {
     // Can't wait if we don't know the task id.
     console.log(JSON.stringify(result, null, 2));
     return;
+  }
+
+  if (result?.kind === "task") {
+    printTaskHandle(result);
   }
 
   const startedAt = Date.now();
   const terminalStates = new Set(["completed", "failed", "canceled"]);
 
   while (true) {
-    const task = await client.getTask({ id: taskId, historyLength: 20 }, requestOptions);
+    const task = await client.getTask({ id: responseTaskId, historyLength: 20 }, requestOptions);
     const state = task?.status?.state;
 
     if (state && terminalStates.has(state)) {
@@ -203,7 +234,7 @@ async function main() {
     }
 
     if (Date.now() - startedAt > timeoutMs) {
-      console.error(`Timeout waiting for task ${taskId} after ${timeoutMs}ms`);
+      console.error(`Timeout waiting for task ${responseTaskId} after ${timeoutMs}ms`);
       console.log(JSON.stringify(task, null, 2));
       process.exit(3);
     }

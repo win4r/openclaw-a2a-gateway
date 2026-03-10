@@ -12,6 +12,13 @@ const HOOKS_WAKE_TIMEOUT_MS = 5_000;
 const TASK_CONTEXT_CACHE_LIMIT = 10_000;
 
 /**
+ * Maximum number of messages retained in task history.
+ * Prevents unbounded growth in long-running conversations.
+ * The SDK's tasks/get historyLength param can further trim on read.
+ */
+const MAX_HISTORY_MESSAGES = 200;
+
+/**
  * Structured response from OpenClaw Gateway agent dispatch.
  * Carries both text and optional media URLs extracted from agent payloads.
  */
@@ -703,6 +710,19 @@ export class OpenClawAgentExecutor implements AgentExecutor {
     const contextId = requestContext.contextId;
     this.rememberTaskContext(taskId, contextId);
 
+    // Carry forward conversation history from previous rounds (if any).
+    // The SDK's ResultManager replaces currentTask with { ...taskEvent }, so
+    // omitting history would wipe out prior messages.
+    //
+    // IMPORTANT: The SDK's _createRequestContext already appends the current
+    // user message to task.history before calling execute(). The ResultManager
+    // then checks messageId to avoid double-adding. We rely on this dedup —
+    // do NOT manually strip the current message from existingHistory.
+    const rawHistory = requestContext.task?.history ?? [];
+    const existingHistory = rawHistory.length > MAX_HISTORY_MESSAGES
+      ? rawHistory.slice(-MAX_HISTORY_MESSAGES)
+      : rawHistory;
+
     // Publish initial "working" state so the task is trackable during async dispatch
     const workingTask: Task = {
       kind: "task",
@@ -712,6 +732,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
         state: "working",
         timestamp: new Date().toISOString(),
       },
+      history: existingHistory,
     };
     eventBus.publish(workingTask);
 
@@ -742,6 +763,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
           message: failedMessage,
           timestamp: new Date().toISOString(),
         },
+        history: existingHistory,
       };
 
       eventBus.publish(failedTask);
@@ -769,6 +791,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
         message: responseMessage,
         timestamp: new Date().toISOString(),
       },
+      history: existingHistory,
       artifacts: [
         {
           artifactId: uuidv4(),
@@ -781,6 +804,10 @@ export class OpenClawAgentExecutor implements AgentExecutor {
     eventBus.finished();
   }
 
+  // cancelTask intentionally omits history: it only receives taskId (no
+  // RequestContext), so loading history would require a TaskStore reference
+  // that the executor doesn't hold. Cancellation is a terminal state where
+  // consumers care about status, not conversation history.
   async cancelTask(taskId: string, eventBus: ExecutionEventBus): Promise<void> {
     const contextId = this.taskContextByTaskId.get(taskId);
     if (!contextId) {
