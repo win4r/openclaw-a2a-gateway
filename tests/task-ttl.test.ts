@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -76,9 +76,10 @@ describe("FileTaskStore extensions", () => {
       const before = await store.load("doomed-task");
       assert.ok(before, "task should exist before delete");
 
-      await store.delete("doomed-task");
+      const deleted = await store.delete("doomed-task");
 
       const after = await store.load("doomed-task");
+      assert.equal(deleted, true, "delete should report that it removed a task");
       assert.equal(after, undefined, "task should be gone after delete");
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -89,8 +90,8 @@ describe("FileTaskStore extensions", () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "a2a-ttl-delnx-"));
     try {
       const store = new FileTaskStore(dir);
-      // Should not throw
-      await store.delete("ghost-task-42");
+      const deleted = await store.delete("ghost-task-42");
+      assert.equal(deleted, false, "delete should report when nothing was removed");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -122,6 +123,29 @@ describe("FileTaskStore extensions", () => {
       assert.equal(entries2.length, 2);
     } finally {
       await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("retries directory creation after a transient mkdir failure", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "a2a-ttl-dirrecover-"));
+    const blocker = path.join(root, "blocked");
+    try {
+      await writeFile(blocker, "x", "utf8");
+      const store = new FileTaskStore(path.join(blocker, "tasks"));
+
+      await assert.rejects(
+        store.save(makeTask("first-attempt", "completed", hoursAgo(1))),
+        (error: unknown) => (error as { code?: string } | undefined)?.code === "ENOTDIR",
+      );
+
+      await rm(blocker, { force: true });
+      await mkdir(blocker, { recursive: true });
+
+      await store.save(makeTask("second-attempt", "completed", hoursAgo(1)));
+      const recovered = await store.load("second-attempt");
+      assert.ok(recovered, "save should recover once the directory path becomes valid");
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
   });
 });
@@ -238,5 +262,26 @@ describe("Task TTL cleanup", () => {
     assert.equal(result.expired, 0);
     assert.equal(result.skipped, 0);
     assert.equal(result.errors, 0);
+  });
+
+  it("skips overlapping cleanup runs for the same store", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "a2a-ttl-overlap-"));
+    try {
+      const store = new FileTaskStore(dir);
+      const telemetry = makeTelemetry();
+
+      await store.save(makeTask("race-1", "completed", hoursAgo(100)));
+
+      const [first, second] = await Promise.all([
+        runTaskCleanup(store, 72 * 3_600_000, telemetry, silentLogger()),
+        runTaskCleanup(store, 72 * 3_600_000, telemetry, silentLogger()),
+      ]);
+
+      assert.equal(first.expired, 1);
+      assert.deepEqual(second, { expired: 0, skipped: 0, errors: 0 });
+      assert.equal(telemetry.snapshot().tasks.expired, 1, "telemetry should count the task only once");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -61,14 +61,15 @@ export class FileTaskStore implements TaskStore {
     }
   }
 
-  /** Delete a task file. Silently ignores missing files. */
-  async delete(taskId: string): Promise<void> {
+  /** Delete a task file and report whether anything was removed. */
+  async delete(taskId: string): Promise<boolean> {
     try {
       await unlink(this.taskPath(taskId));
+      return true;
     } catch (error: unknown) {
       const code = (error as { code?: string } | undefined)?.code;
       if (code === "ENOENT") {
-        return;
+        return false;
       }
       throw error;
     }
@@ -80,7 +81,13 @@ export class FileTaskStore implements TaskStore {
 
   private ensureDir(): Promise<void> {
     if (!this.dirReady) {
-      this.dirReady = mkdir(this.tasksDir, { recursive: true }).then(() => {});
+      this.dirReady = mkdir(this.tasksDir, { recursive: true }).then(
+        () => {},
+        (error) => {
+          this.dirReady = null;
+          throw error;
+        },
+      );
     }
     return this.dirReady;
   }
