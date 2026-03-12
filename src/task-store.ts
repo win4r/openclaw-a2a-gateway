@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { Task } from "@a2a-js/sdk";
@@ -14,6 +14,7 @@ function taskFileName(taskId: string): string {
 
 export class FileTaskStore implements TaskStore {
   private readonly tasksDir: string;
+  private dirReady: Promise<void> | null = null;
 
   constructor(tasksDir: string) {
     this.tasksDir = path.resolve(tasksDir);
@@ -33,7 +34,7 @@ export class FileTaskStore implements TaskStore {
   }
 
   async save(task: Task, _context?: ServerCallContext): Promise<void> {
-    await mkdir(this.tasksDir, { recursive: true });
+    await this.ensureDir();
 
     const nextTask = cloneTask(task);
     const targetPath = this.taskPath(task.id);
@@ -44,7 +45,43 @@ export class FileTaskStore implements TaskStore {
     await rename(tmpPath, targetPath);
   }
 
+  /** List all stored task IDs. */
+  async listAll(): Promise<string[]> {
+    try {
+      const entries = await readdir(this.tasksDir);
+      return entries
+        .filter((name) => name.endsWith(".json"))
+        .map((name) => decodeURIComponent(name.slice(0, -5)));
+    } catch (error: unknown) {
+      const code = (error as { code?: string } | undefined)?.code;
+      if (code === "ENOENT") {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  /** Delete a task file. Silently ignores missing files. */
+  async delete(taskId: string): Promise<void> {
+    try {
+      await unlink(this.taskPath(taskId));
+    } catch (error: unknown) {
+      const code = (error as { code?: string } | undefined)?.code;
+      if (code === "ENOENT") {
+        return;
+      }
+      throw error;
+    }
+  }
+
   private taskPath(taskId: string): string {
     return path.join(this.tasksDir, taskFileName(taskId));
+  }
+
+  private ensureDir(): Promise<void> {
+    if (!this.dirReady) {
+      this.dirReady = mkdir(this.tasksDir, { recursive: true }).then(() => {});
+    }
+    return this.dirReady;
   }
 }

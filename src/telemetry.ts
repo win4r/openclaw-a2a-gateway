@@ -30,8 +30,10 @@ interface TaskMetrics {
   max_queue_depth_observed: number;
   total_duration_ms: number;
   finished: number;
+  expired: number;
   last_started_at?: string;
   last_finished_at?: string;
+  last_cleanup_at?: string;
 }
 
 export interface GatewayTelemetrySnapshot {
@@ -71,6 +73,7 @@ export class GatewayTelemetry {
     max_queue_depth_observed: 0,
     total_duration_ms: 0,
     finished: 0,
+    expired: 0,
   };
 
   constructor(logger: LoggerLike, options: GatewayTelemetryOptions = {}) {
@@ -194,6 +197,15 @@ export class GatewayTelemetry {
       task_id: taskId,
       context_id: contextId,
       queue_depth: queueDepth,
+    });
+  }
+
+  recordTaskExpired(taskId: string, state: string): void {
+    this.tasks.expired += 1;
+    this.tasks.last_cleanup_at = new Date().toISOString();
+    this.log("info", "task.expired", {
+      task_id: taskId,
+      state,
     });
   }
 

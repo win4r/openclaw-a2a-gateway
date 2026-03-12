@@ -20,6 +20,7 @@ import { buildAgentCard } from "./src/agent-card.js";
 import { A2AClient } from "./src/client.js";
 import { OpenClawAgentExecutor } from "./src/executor.js";
 import { QueueingAgentExecutor } from "./src/queueing-executor.js";
+import { runTaskCleanup } from "./src/task-cleanup.js";
 import { FileTaskStore } from "./src/task-store.js";
 import { GatewayTelemetry } from "./src/telemetry.js";
 import type {
@@ -167,6 +168,8 @@ function parseConfig(raw: unknown, resolvePath?: (nextPath: string) => string): 
     },
     storage: {
       tasksDir: resolveConfiguredPath(storage.tasksDir, "data/tasks", resolvePath),
+      taskTtlHours: Math.max(1, asNumber(storage.taskTtlHours, 72)),
+      cleanupIntervalMinutes: Math.max(1, asNumber(storage.cleanupIntervalMinutes, 60)),
     },
     peers: parsePeers(config.peers),
     security: {
@@ -307,6 +310,7 @@ const plugin = {
 
     let server: Server | null = null;
     let grpcServer: GrpcServer | null = null;
+    let cleanupTimer: ReturnType<typeof setInterval> | null = null;
     const grpcPort = config.server.port + 1;
 
     api.registerGatewayMethod("a2a.metrics", ({ respond }) => {
@@ -526,8 +530,30 @@ const plugin = {
           api.logger.warn(`a2a-gateway: gRPC init failed: ${msg}`);
           grpcServer = null;
         }
+
+        // Start task TTL cleanup
+        const ttlMs = config.storage.taskTtlHours * 3_600_000;
+        const intervalMs = config.storage.cleanupIntervalMinutes * 60_000;
+
+        const doCleanup = () => {
+          void runTaskCleanup(taskStore, ttlMs, telemetry, api.logger);
+        };
+
+        // Run once at startup to clear any backlog
+        doCleanup();
+        cleanupTimer = setInterval(doCleanup, intervalMs);
+
+        api.logger.info(
+          `a2a-gateway: task cleanup enabled — ttl=${config.storage.taskTtlHours}h interval=${config.storage.cleanupIntervalMinutes}min`,
+        );
       },
       async stop(_ctx) {
+        // Stop task cleanup timer
+        if (cleanupTimer) {
+          clearInterval(cleanupTimer);
+          cleanupTimer = null;
+        }
+
         // Stop gRPC server
         if (grpcServer) {
           grpcServer.forceShutdown();

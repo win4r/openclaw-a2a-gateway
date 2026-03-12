@@ -76,6 +76,8 @@ export interface GatewayConfig {
   };
   storage: {
     tasksDir: string;
+    taskTtlHours: number;
+    cleanupIntervalMinutes: number;
   };
   peers: PeerConfig[];
   security: SecurityConfig;

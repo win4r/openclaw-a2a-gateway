@@ -52,7 +52,19 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "tasksDir": { "type": "string", "default": "data/tasks" }
+          "tasksDir": { "type": "string", "default": "data/tasks" },
+          "taskTtlHours": {
+            "type": "number",
+            "default": 72,
+            "minimum": 1,
+            "description": "Hours before completed/failed/canceled tasks are automatically deleted (default 72h)"
+          },
+          "cleanupIntervalMinutes": {
+            "type": "number",
+            "default": 60,
+            "minimum": 1,
+            "description": "Minutes between automatic task cleanup runs (default 60min)"
+          }
         }
       },
       "peers": {
