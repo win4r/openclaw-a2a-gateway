@@ -1,3 +1,7 @@
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+
 import { v4 as uuidv4 } from "uuid";
 
 import type { Message, Part, Task } from "@a2a-js/sdk";
@@ -340,6 +344,145 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: 
   });
 }
 
+// ---------------------------------------------------------------------------
+// Device identity helpers — allow A2A plugin to authenticate as a real device
+// so Gateway does not clear scopes via clearUnboundScopes().
+// ---------------------------------------------------------------------------
+
+interface DeviceIdentity {
+  deviceId: string;
+  publicKeyPem: string;
+  privateKeyPem: string;
+}
+
+const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
+
+function base64UrlEncode(buf: Buffer): string {
+  return buf.toString("base64").replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "");
+}
+
+function derivePublicKeyRaw(publicKeyPem: string): Buffer {
+  const key = crypto.createPublicKey(publicKeyPem);
+  const spki = key.export({ type: "spki", format: "der" }) as Buffer;
+  if (
+    spki.length === ED25519_SPKI_PREFIX.length + 32 &&
+    spki.subarray(0, ED25519_SPKI_PREFIX.length).equals(ED25519_SPKI_PREFIX)
+  ) {
+    return spki.subarray(ED25519_SPKI_PREFIX.length);
+  }
+  return spki;
+}
+
+function fingerprintPublicKey(publicKeyPem: string): string {
+  const raw = derivePublicKeyRaw(publicKeyPem);
+  return crypto.createHash("sha256").update(raw).digest("hex");
+}
+
+function signDevicePayload(privateKeyPem: string, payload: string): string {
+  const key = crypto.createPrivateKey(privateKeyPem);
+  const sig = crypto.sign(null, Buffer.from(payload, "utf8"), key);
+  return base64UrlEncode(sig);
+}
+
+function publicKeyRawBase64Url(publicKeyPem: string): string {
+  return base64UrlEncode(derivePublicKeyRaw(publicKeyPem));
+}
+
+/**
+ * Build the v2 device auth payload string used for signature verification.
+ * Must match Gateway's `buildDeviceAuthPayload()` in `src/gateway/device-auth.ts`.
+ * Compatible with all Gateway versions.
+ */
+function buildDeviceAuthPayloadV2(params: {
+  deviceId: string;
+  clientId: string;
+  clientMode: string;
+  role: string;
+  scopes: string[];
+  signedAtMs: number;
+  token: string;
+  nonce: string;
+}): string {
+  const scopes = params.scopes.join(",");
+  return [
+    "v2",
+    params.deviceId,
+    params.clientId,
+    params.clientMode,
+    params.role,
+    scopes,
+    String(params.signedAtMs),
+    params.token,
+    params.nonce,
+  ].join("|");
+}
+
+/**
+ * Build the v3 device auth payload string used for signature verification.
+ * Must match Gateway's `buildDeviceAuthPayloadV3()` in `src/gateway/device-auth.ts`.
+ */
+function buildDeviceAuthPayloadV3(params: {
+  deviceId: string;
+  clientId: string;
+  clientMode: string;
+  role: string;
+  scopes: string[];
+  signedAtMs: number;
+  token: string;
+  nonce: string;
+  platform: string;
+  deviceFamily?: string;
+}): string {
+  const scopes = params.scopes.join(",");
+  return [
+    "v3",
+    params.deviceId,
+    params.clientId,
+    params.clientMode,
+    params.role,
+    scopes,
+    String(params.signedAtMs),
+    params.token,
+    params.nonce,
+    params.platform,
+    params.deviceFamily ?? "",
+  ].join("|");
+}
+
+/**
+ * Load the device identity from `~/.openclaw/identity/device.json`.
+ * The A2A plugin runs in the Gateway process, so it has access to the same
+ * local state directory. Returns null if not found (fresh install, etc.).
+ */
+function loadDeviceIdentity(): DeviceIdentity | null {
+  try {
+    const stateDir = process.env.OPENCLAW_STATE_DIR ||
+      path.join(process.env.HOME || process.env.USERPROFILE || "/tmp", ".openclaw");
+    const identityPath = path.join(stateDir, "identity", "device.json");
+    if (!fs.existsSync(identityPath)) {
+      return null;
+    }
+    const raw = JSON.parse(fs.readFileSync(identityPath, "utf8"));
+    if (
+      raw?.version === 1 &&
+      typeof raw.deviceId === "string" &&
+      typeof raw.publicKeyPem === "string" &&
+      typeof raw.privateKeyPem === "string"
+    ) {
+      // Re-derive deviceId from public key for consistency
+      const derivedId = fingerprintPublicKey(raw.publicKeyPem);
+      return {
+        deviceId: derivedId,
+        publicKeyPem: raw.publicKeyPem,
+        privateKeyPem: raw.privateKeyPem,
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 interface GatewayRuntimeConfig {
   port: number;
   wsUrl: string;
@@ -388,6 +531,11 @@ class GatewayRpcConnection {
   private connectChallengeResolver: ((nonce: string) => void) | null;
   private connectChallengeRejecter: ((error: Error) => void) | null;
 
+  /** Cached device identity loaded from ~/.openclaw/identity/device.json */
+  private readonly deviceIdentity: DeviceIdentity | null;
+  /** Connect challenge nonce received from Gateway, used for device auth signing */
+  private connectNonce: string;
+
   constructor(config: GatewayRuntimeConfig) {
     this.wsUrl = config.wsUrl;
     this.gatewayToken = config.gatewayToken;
@@ -396,6 +544,8 @@ class GatewayRpcConnection {
     this.socket = null;
     this.messageListener = null;
     this.closeListener = null;
+    this.deviceIdentity = loadDeviceIdentity();
+    this.connectNonce = "";
 
     this.connectChallengeTimer = null;
     this.connectChallengeResolver = null;
@@ -552,7 +702,8 @@ class GatewayRpcConnection {
     this.clearConnectChallengeWait();
 
     return new Promise<void>((resolve, reject) => {
-      this.connectChallengeResolver = () => {
+      this.connectChallengeResolver = (nonce: string) => {
+        this.connectNonce = nonce;
         this.clearConnectChallengeWait();
         resolve();
       };
@@ -598,22 +749,70 @@ class GatewayRpcConnection {
       auth.password = this.gatewayPassword;
     }
 
+    const role = "operator";
+    const scopes = ["operator.admin", "operator.read", "operator.write", "operator.approvals", "operator.pairing"];
+    const clientId = "cli";
+    const clientMode = "cli";
+
     const params: Record<string, unknown> = {
       minProtocol: 3,
       maxProtocol: 3,
       client: {
-        id: "cli",
+        id: clientId,
         version: "a2a-gateway-plugin",
         platform: process.platform,
-        mode: "cli",
+        mode: clientMode,
         instanceId: uuidv4(),
       },
-      role: "operator",
-      scopes: ["operator.admin", "operator.read", "operator.write", "operator.approvals", "operator.pairing"],
+      role,
+      scopes,
     };
 
     if (Object.keys(auth).length > 0) {
       params.auth = auth;
+    }
+
+    // Attach device identity if available. Without this, Gateway's
+    // clearUnboundScopes() strips all self-declared scopes from non-Control-UI
+    // clients, causing "missing scope: operator.write" errors on agent dispatch.
+    if (this.deviceIdentity && this.connectNonce) {
+      const signedAtMs = Date.now();
+      // Try v3 payload first (newer Gateway versions), fall back to v2
+      // if verification fails. We sign with v3 first because the verification
+      // handler tries v3 then v2. Older Gateway versions only understand v2.
+      const payloadV3 = buildDeviceAuthPayloadV3({
+        deviceId: this.deviceIdentity.deviceId,
+        clientId,
+        clientMode,
+        role,
+        scopes,
+        signedAtMs,
+        token: this.gatewayToken || "",
+        nonce: this.connectNonce,
+        platform: process.platform,
+      });
+      const payloadV2 = buildDeviceAuthPayloadV2({
+        deviceId: this.deviceIdentity.deviceId,
+        clientId,
+        clientMode,
+        role,
+        scopes,
+        signedAtMs,
+        token: this.gatewayToken || "",
+        nonce: this.connectNonce,
+      });
+
+      // Sign with v2 for maximum compatibility (older Gateway versions).
+      // Newer Gateway versions try v3 first, then v2 — so v2 always works.
+      const signature = signDevicePayload(this.deviceIdentity.privateKeyPem, payloadV2);
+
+      params.device = {
+        id: this.deviceIdentity.deviceId,
+        publicKey: publicKeyRawBase64Url(this.deviceIdentity.publicKeyPem),
+        signature,
+        signedAt: signedAtMs,
+        nonce: this.connectNonce,
+      };
     }
 
     return params;
@@ -988,8 +1187,8 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       port,
       wsUrl: `${scheme}://localhost:${port}`,
       hooksWakeUrl: `http://localhost:${port}/hooks/wake`,
-      gatewayToken: asString(gatewayAuth.token) || "",
-      gatewayPassword: asString(gatewayAuth.password) || "",
+      gatewayToken: asString(gatewayAuth.token) || process.env.OPENCLAW_GATEWAY_TOKEN || "",
+      gatewayPassword: asString(gatewayAuth.password) || process.env.OPENCLAW_GATEWAY_PASSWORD || "",
       hooksToken: asString(hooks.token) || "",
     };
   }
