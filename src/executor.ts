@@ -1044,61 +1044,68 @@ export class OpenClawAgentExecutor implements AgentExecutor {
     contextId: string,
   ): Promise<AgentResponse> {
     const messageText = extractInboundMessageText(userMessage);
-    const gatewayConfig = this.resolveGatewayRuntimeConfig();
-    const gateway = new GatewayRpcConnection(gatewayConfig);
 
-    await gateway.connect();
+    // Use the Plugin SDK's subagent.run() API instead of raw WebSocket RPC.
+    // The WS "agent" method requires operator.write scope which needs device
+    // identity — but the Plugin SDK's runtime already has full gateway access
+    // without needing to re-authenticate via WS.
+    const sessionKey = `agent:${agentId}:a2a:${contextId}`;
+    const runId = uuidv4();
 
     try {
-      // Derive a deterministic session key from A2A contextId for:
-      // 1. Session reuse across messages in the same A2A context (conversation continuity)
-      // 2. Isolation between different A2A contexts (no cross-contamination)
-      // The gateway `agent` RPC auto-creates the session if it doesn't exist.
-      const sessionKey = `agent:${agentId}:a2a:${contextId}`;
-
-      const runId = uuidv4();
-      const agentParams: Record<string, unknown> = {
-        agentId,
+      const result = await this.api.runtime.subagent.run({
+        sessionKey,
         message: messageText,
         deliver: false,
         idempotencyKey: runId,
+      });
+
+      // Wait for the agent run to complete
+      const waitResult = await this.api.runtime.subagent.waitForRun({
+        runId: result.runId,
+        timeoutMs: this.agentResponseTimeoutMs,
+      });
+
+      if (waitResult.status === "error") {
+        throw new Error(waitResult.error || "Agent run failed");
+      }
+      if (waitResult.status === "timeout") {
+        throw new Error("Agent run timed out");
+      }
+
+      // Retrieve the assistant's response from session history
+      const historyResult = await this.api.runtime.subagent.getSessionMessages({
         sessionKey,
-      };
+        limit: 50,
+      });
 
-      const finalPayload = await gateway.request(
-        "agent",
-        agentParams,
-        this.agentResponseTimeoutMs,
-        true,
-      );
-      const finalBody = asObject(finalPayload);
-      const status = asString(finalBody?.status);
-      if (status && status !== "ok") {
-        const summary = asString(finalBody?.summary) || "Agent run did not complete";
-        throw new Error(summary);
+      const messages = historyResult.messages as Array<Record<string, unknown>>;
+      // Find the latest assistant message
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (msg?.role === "assistant") {
+          const content = msg.content;
+          if (typeof content === "string") {
+            return { text: content, mediaUrls: [] };
+          }
+          if (Array.isArray(content)) {
+            const textParts = content
+              .filter((p: unknown) => {
+                const part = p as Record<string, unknown>;
+                return part?.type === "text" && typeof part?.text === "string";
+              })
+              .map((p: unknown) => (p as Record<string, string>).text);
+            if (textParts.length > 0) {
+              return { text: textParts.join("\n"), mediaUrls: [] };
+            }
+          }
+        }
       }
 
-      const agentResponse = extractAgentResponse(finalPayload);
-      if (agentResponse) {
-        return agentResponse;
-      }
-
-      // sessionKey is always available (deterministic from contextId),
-      // so we can always try to retrieve the latest assistant reply from history.
-      const historyPayload = await gateway.request(
-        "chat.history",
-        { sessionKey, limit: 50 },
-        GATEWAY_REQUEST_TIMEOUT_MS,
-        false,
-      );
-      const historyText = extractLatestAssistantReply(historyPayload);
-      if (historyText) {
-        return { text: historyText, mediaUrls: [] };
-      }
-
-      throw new Error("No assistant response text returned by gateway");
-    } finally {
-      gateway.close();
+      throw new Error("No assistant response text returned by agent");
+    } catch (err) {
+      // Re-throw to let the outer executeTask catch handle it
+      throw err;
     }
   }
 
