@@ -53,7 +53,7 @@ export function buildAgentCard(config: GatewayConfig): AgentCard {
     skills: (agentCard.skills || []).map((entry, index) => toSkill(entry, index)),
     capabilities: {
       streaming: true,
-      pushNotifications: true,
+      pushNotifications: false,
       stateTransitionHistory: false,
     },
     securitySchemes,

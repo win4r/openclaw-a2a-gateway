@@ -421,8 +421,22 @@ const plugin = {
       );
     }
 
+    // Bearer auth middleware for push notification endpoints
+    const pushAuthMiddleware = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+      if (config.security.inboundAuth === "bearer" && config.security.validTokens.size > 0) {
+        const authHeader = req.headers.authorization;
+        const header = Array.isArray(authHeader) ? authHeader[0] : authHeader;
+        const token = typeof header === "string" && header.startsWith("Bearer ") ? header.slice(7) : "";
+        if (!token || !config.security.validTokens.has(token)) {
+          res.status(401).json({ error: "Unauthorized: invalid or missing bearer token" });
+          return;
+        }
+      }
+      next();
+    };
+
     // REST endpoints for push notification registration
-    app.post("/a2a/push/register", express.json(), (req, res) => {
+    app.post("/a2a/push/register", pushAuthMiddleware, express.json(), async (req, res) => {
       const body = asObject(req.body);
       const taskId = asString(body.taskId, "");
       const url = asString(body.url, "");
@@ -430,6 +444,14 @@ const plugin = {
         res.status(400).json({ error: "taskId and url are required" });
         return;
       }
+
+      // SSRF validation: reuse file-security's URI validation
+      const uriCheck = await validateUri(url, config.security);
+      if (!uriCheck.ok) {
+        res.status(400).json({ error: `Webhook URL rejected: ${uriCheck.reason}` });
+        return;
+      }
+
       const token = asString(body.token, "") || undefined;
       const events = Array.isArray(body.events)
         ? (body.events as unknown[]).filter((e): e is string => typeof e === "string")
@@ -438,8 +460,9 @@ const plugin = {
       res.json({ taskId, registered: true });
     });
 
-    app.delete("/a2a/push/:taskId", (req, res) => {
-      const taskId = req.params.taskId || "";
+    app.delete("/a2a/push/:taskId", pushAuthMiddleware, (req, res) => {
+      const rawTaskId = req.params.taskId;
+      const taskId = typeof rawTaskId === "string" ? rawTaskId : "";
       if (!taskId) {
         res.status(400).json({ error: "taskId is required" });
         return;
