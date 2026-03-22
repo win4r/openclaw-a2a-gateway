@@ -114,7 +114,7 @@ describe("a2a-gateway plugin", () => {
 
     const capabilities = payload.capabilities as Record<string, unknown>;
     assert.equal(capabilities.streaming, true);
-    assert.equal(capabilities.pushNotifications, false);
+    assert.equal(capabilities.pushNotifications, true);
     assert.equal(capabilities.stateTransitionHistory, false);
   });
 

@@ -26,6 +26,7 @@ import { FileTaskStore } from "./src/task-store.js";
 import { GatewayTelemetry } from "./src/telemetry.js";
 import { AuditLogger } from "./src/audit.js";
 import { PeerHealthManager } from "./src/peer-health.js";
+import { PushNotificationStore } from "./src/push-notifications.js";
 import type {
   AgentCardConfig,
   GatewayConfig,
@@ -261,6 +262,7 @@ const plugin = {
       structuredLogs: config.observability.structuredLogs,
     });
     const auditLogger = new AuditLogger(config.observability.auditLogPath);
+    const pushStore = new PushNotificationStore();
     const client = new A2AClient();
     const taskStore = new FileTaskStore(config.storage.tasksDir);
     const executor = new QueueingAgentExecutor(
@@ -301,9 +303,26 @@ const plugin = {
       telemetry.setPeerStateProvider(() => healthManager.getAllStates());
     }
 
-    // Wire audit logger for inbound task completion
+    // Wire audit logger + push notifications for inbound task completion
     telemetry.setTaskAuditCallback((taskId, contextId, state, durationMs) => {
       auditLogger.recordInbound(taskId, contextId, state, durationMs);
+
+      // Fire-and-forget push notification for terminal states
+      if (pushStore.has(taskId) && (state === "completed" || state === "failed" || state === "canceled")) {
+        taskStore.load(taskId).then((task) => {
+          if (!task) return;
+          return pushStore.send(taskId, state, task);
+        }).then((result) => {
+          if (result && result.ok) {
+            api.logger.info(`a2a-gateway: push notification sent for task ${taskId} (${state})`);
+          } else if (result) {
+            api.logger.warn(`a2a-gateway: push notification failed for task ${taskId}: ${result.error}`);
+          }
+        }).catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          api.logger.warn(`a2a-gateway: push notification error for task ${taskId}: ${msg}`);
+        });
+      }
     });
 
     // SDK expects userBuilder(req) -> Promise<User>
@@ -402,6 +421,34 @@ const plugin = {
       );
     }
 
+    // REST endpoints for push notification registration
+    app.post("/a2a/push/register", express.json(), (req, res) => {
+      const body = asObject(req.body);
+      const taskId = asString(body.taskId, "");
+      const url = asString(body.url, "");
+      if (!taskId || !url) {
+        res.status(400).json({ error: "taskId and url are required" });
+        return;
+      }
+      const token = asString(body.token, "") || undefined;
+      const events = Array.isArray(body.events)
+        ? (body.events as unknown[]).filter((e): e is string => typeof e === "string")
+        : undefined;
+      pushStore.register(taskId, { url, token, events });
+      res.json({ taskId, registered: true });
+    });
+
+    app.delete("/a2a/push/:taskId", (req, res) => {
+      const taskId = req.params.taskId || "";
+      if (!taskId) {
+        res.status(400).json({ error: "taskId is required" });
+        return;
+      }
+      const existed = pushStore.has(taskId);
+      pushStore.unregister(taskId);
+      res.json({ taskId, removed: existed });
+    });
+
     let server: Server | null = null;
     let grpcServer: GrpcServer | null = null;
     let cleanupTimer: ReturnType<typeof setInterval> | null = null;
@@ -420,6 +467,34 @@ const plugin = {
         .tail(count)
         .then((entries) => respond(true, { entries, count: entries.length }))
         .catch((error) => respond(false, { error: String(error?.message || error) }));
+    });
+
+    api.registerGatewayMethod("a2a.pushNotification.register", ({ params, respond }) => {
+      const payload = asObject(params);
+      const taskId = asString(payload.taskId, "");
+      const url = asString(payload.url, "");
+      if (!taskId || !url) {
+        respond(false, { error: "taskId and url are required" });
+        return;
+      }
+      const token = asString(payload.token, "") || undefined;
+      const events = Array.isArray(payload.events)
+        ? (payload.events as unknown[]).filter((e): e is string => typeof e === "string")
+        : undefined;
+      pushStore.register(taskId, { url, token, events });
+      respond(true, { taskId, registered: true });
+    });
+
+    api.registerGatewayMethod("a2a.pushNotification.unregister", ({ params, respond }) => {
+      const payload = asObject(params);
+      const taskId = asString(payload.taskId, "");
+      if (!taskId) {
+        respond(false, { error: "taskId is required" });
+        return;
+      }
+      const existed = pushStore.has(taskId);
+      pushStore.unregister(taskId);
+      respond(true, { taskId, removed: existed });
     });
 
     api.registerGatewayMethod("a2a.send", ({ params, respond }) => {
