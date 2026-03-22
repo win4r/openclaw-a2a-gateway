@@ -137,6 +137,35 @@
           "defaultAgentId": {
             "type": "string",
             "default": "default"
+          },
+          "rules": {
+            "type": "array",
+            "default": [],
+            "description": "Routing rules for auto-selecting peer + agentId based on message content",
+            "items": {
+              "type": "object",
+              "required": ["name", "match", "target"],
+              "properties": {
+                "name": { "type": "string", "description": "Human-readable rule name" },
+                "match": {
+                  "type": "object",
+                  "properties": {
+                    "pattern": { "type": "string", "description": "Regex pattern (case-insensitive)" },
+                    "tags": { "type": "array", "items": { "type": "string" }, "description": "Match any tag (OR)" },
+                    "skills": { "type": "array", "items": { "type": "string" }, "description": "Match peer skills" }
+                  }
+                },
+                "target": {
+                  "type": "object",
+                  "required": ["peer"],
+                  "properties": {
+                    "peer": { "type": "string", "description": "Target peer name" },
+                    "agentId": { "type": "string", "description": "Route to specific agentId" }
+                  }
+                },
+                "priority": { "type": "number", "default": 0, "description": "Higher = checked first" }
+              }
+            }
           }
         }
       },

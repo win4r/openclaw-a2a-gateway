@@ -86,6 +86,7 @@ export interface GatewayConfig {
   security: SecurityConfig;
   routing: {
     defaultAgentId: string;
+    rules: import("./routing-rules.js").RoutingRule[];
   };
   limits: {
     maxConcurrentTasks: number;

@@ -38,6 +38,7 @@ import {
   validateUri,
   validateMimeType,
 } from "./src/file-security.js";
+import { parseRoutingRules, matchRule } from "./src/routing-rules.js";
 
 /** Build a JSON-RPC error response. */
 function jsonRpcError(id: string | number | null, code: number, message: string) {
@@ -205,6 +206,7 @@ export function parseConfig(raw: unknown, resolvePath?: (nextPath: string) => st
     })(),
     routing: {
       defaultAgentId: asString(routing.defaultAgentId, "default"),
+      rules: parseRoutingRules(routing.rules),
     },
     limits: {
       maxConcurrentTasks: Math.max(1, Math.floor(asNumber(limits.maxConcurrentTasks, 4))),
@@ -532,12 +534,32 @@ const plugin = {
 
     api.registerGatewayMethod("a2a.send", ({ params, respond }) => {
       const payload = asObject(params);
-      const peerName = asString(payload.peer || payload.name, "");
+      let peerName = asString(payload.peer || payload.name, "");
       const message = asObject(payload.message || payload.payload);
+
+      // Rule-based routing: auto-select peer when not explicitly provided
+      if (!peerName && config.routing.rules.length > 0) {
+        const msgText = typeof message.text === "string" ? message.text
+          : typeof message.message === "string" ? message.message : "";
+        const msgTags = Array.isArray(message.tags)
+          ? (message.tags as unknown[]).filter((t): t is string => typeof t === "string")
+          : [];
+        const routeMatch = matchRule(config.routing.rules, { text: msgText, tags: msgTags });
+        if (routeMatch) {
+          peerName = routeMatch.peer;
+          if (routeMatch.agentId && !message.agentId) {
+            message.agentId = routeMatch.agentId;
+          }
+          api.logger.info(`a2a-gateway: rule-based routing matched → peer="${peerName}"${routeMatch.agentId ? ` agentId="${routeMatch.agentId}"` : ""}`);
+        }
+      }
 
       const peer = config.peers.find((candidate) => candidate.name === peerName);
       if (!peer) {
-        respond(false, { error: `Peer not found: ${peerName}` });
+        const hint = peerName
+          ? `Peer not found: ${peerName}`
+          : "No peer specified and no routing rule matched";
+        respond(false, { error: hint });
         return;
       }
 
