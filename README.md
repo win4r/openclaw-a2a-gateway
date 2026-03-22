@@ -571,6 +571,7 @@ The agent will follow the skill's procedure automatically.
 - ✅ **v1.0.1** Ed25519 device identity for OpenClaw ≥2026.3.13 scope compatibility (commit 84f440c)
 - ✅ Metrics endpoint optional bearer auth (`observability.metricsAuth: "bearer"`)
 - ✅ Extract file URLs from agent text responses (markdown links, bare URLs) into outbound FileParts — only recognized file extensions are promoted
+- ✅ Cross-implementation compatibility test matrix ([docs/COMPATIBILITY.md](docs/COMPATIBILITY.md))
 
 ### Next
 
@@ -578,7 +579,6 @@ The agent will follow the skill's procedure automatically.
 - DNS-based dynamic agent discovery (mDNS/DNS-SD) instead of hardcoded peer URLs
 - Push notifications support (store + sender) for long-running tasks
 - Automatic transport fallback (JSON-RPC → REST/gRPC)
-- Cross-implementation compatibility test matrix (Google reference server, etc.)
 
 ## License
 
