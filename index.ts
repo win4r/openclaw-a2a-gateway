@@ -500,12 +500,22 @@ const plugin = {
         respond(false, { error: "taskId and url are required" });
         return;
       }
-      const token = asString(payload.token, "") || undefined;
-      const events = Array.isArray(payload.events)
-        ? (payload.events as unknown[]).filter((e): e is string => typeof e === "string")
-        : undefined;
-      pushStore.register(taskId, { url, token, events });
-      respond(true, { taskId, registered: true });
+
+      // SSRF validation on webhook URL
+      validateUri(url, config.security).then((uriCheck) => {
+        if (!uriCheck.ok) {
+          respond(false, { error: `Webhook URL rejected: ${uriCheck.reason}` });
+          return;
+        }
+        const token = asString(payload.token, "") || undefined;
+        const events = Array.isArray(payload.events)
+          ? (payload.events as unknown[]).filter((e): e is string => typeof e === "string")
+          : undefined;
+        pushStore.register(taskId, { url, token, events });
+        respond(true, { taskId, registered: true });
+      }).catch((err) => {
+        respond(false, { error: `URI validation failed: ${err instanceof Error ? err.message : String(err)}` });
+      });
     });
 
     api.registerGatewayMethod("a2a.pushNotification.unregister", ({ params, respond }) => {
