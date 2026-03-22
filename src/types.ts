@@ -71,6 +71,16 @@ export interface SecurityConfig extends FileSecurityConfig {
   validTokens: Set<string>;
 }
 
+export interface DnsDiscoveryConfig {
+  enabled: boolean;
+  /** DNS-SD service name to query. Default: "_a2a._tcp.local" */
+  serviceName: string;
+  /** How often to re-query DNS (ms). Default: 30000 (30s). */
+  refreshIntervalMs: number;
+  /** Whether discovered peers supplement static config peers. Default: true. */
+  mergeWithStatic: boolean;
+}
+
 export interface GatewayConfig {
   agentCard: AgentCardConfig;
   server: {
@@ -107,6 +117,8 @@ export interface GatewayConfig {
     agentResponseTimeoutMs?: number;
   };
   resilience: PeerResilienceConfig;
+  /** DNS-SD discovery configuration. Disabled by default. */
+  discovery: DnsDiscoveryConfig;
 }
 
 // ---------------------------------------------------------------------------

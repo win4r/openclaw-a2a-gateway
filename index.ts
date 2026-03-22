@@ -19,6 +19,11 @@ import express from "express";
 
 import { buildAgentCard } from "./src/agent-card.js";
 import { A2AClient } from "./src/client.js";
+import {
+  DnsDiscoveryManager,
+  mergeWithStaticPeers,
+  parseDnsDiscoveryConfig,
+} from "./src/dns-discovery.js";
 import { OpenClawAgentExecutor } from "./src/executor.js";
 import { QueueingAgentExecutor } from "./src/queueing-executor.js";
 import { runTaskCleanup } from "./src/task-cleanup.js";
@@ -155,6 +160,7 @@ export function parseConfig(raw: unknown, resolvePath?: (nextPath: string) => st
   const healthCheck = asObject(resilience.healthCheck);
   const retry = asObject(resilience.retry);
   const circuitBreaker = asObject(resilience.circuitBreaker);
+  const discoveryRaw = config.discovery ? asObject(config.discovery) : undefined;
 
   const inboundAuth = asString(security.inboundAuth, "none") as InboundAuth;
 
@@ -242,6 +248,7 @@ export function parseConfig(raw: unknown, resolvePath?: (nextPath: string) => st
         resetTimeoutMs: asNumber(circuitBreaker.resetTimeoutMs, 30_000),
       },
     },
+    discovery: parseDnsDiscoveryConfig(discoveryRaw),
   };
 }
 
@@ -299,6 +306,38 @@ const plugin = {
           },
         )
       : null;
+
+    // DNS-SD discovery manager (disabled by default)
+    const discoveryManager = config.discovery.enabled
+      ? new DnsDiscoveryManager(config.discovery, (level, msg, details) => {
+          if (level === "error") {
+            api.logger.error(details ? `${msg}: ${JSON.stringify(details)}` : msg);
+          } else if (level === "warn") {
+            api.logger.warn(details ? `${msg}: ${JSON.stringify(details)}` : msg);
+          } else {
+            api.logger.info(details ? `${msg}: ${JSON.stringify(details)}` : msg);
+          }
+        })
+      : null;
+
+    /**
+     * Get the effective peer list: static peers merged with discovered peers.
+     * Static peers always take precedence on name collision.
+     */
+    const getEffectivePeers = (): PeerConfig[] => {
+      if (!discoveryManager) return config.peers;
+      if (!config.discovery.mergeWithStatic) {
+        return discoveryManager.toPeerConfigs();
+      }
+      return mergeWithStaticPeers(config.peers, discoveryManager.getDiscoveredPeers());
+    };
+
+    /**
+     * Look up a peer by name from the effective peer list.
+     */
+    const findPeer = (name: string): PeerConfig | undefined => {
+      return getEffectivePeers().find((p) => p.name === name);
+    };
 
     // Wire peer state into telemetry snapshot
     if (healthManager) {
@@ -554,7 +593,7 @@ const plugin = {
         }
       }
 
-      const peer = config.peers.find((candidate) => candidate.name === peerName);
+      const peer = findPeer(peerName);
       if (!peer) {
         const hint = peerName
           ? `Peer not found: ${peerName}`
@@ -626,9 +665,9 @@ const plugin = {
         label: "A2A Send File",
         parameters: sendFileParams,
         async execute(toolCallId, params) {
-          const peer = config.peers.find((p) => p.name === params.peer);
+          const peer = findPeer(params.peer);
           if (!peer) {
-            const available = config.peers.map((p) => p.name).join(", ") || "(none)";
+            const available = getEffectivePeers().map((p) => p.name).join(", ") || "(none)";
             return {
               content: [{ type: "text" as const, text: `Peer not found: "${params.peer}". Available peers: ${available}` }],
               details: { ok: false },
@@ -705,6 +744,9 @@ const plugin = {
         if (server) {
           return;
         }
+
+        // Start DNS-SD discovery (if enabled)
+        discoveryManager?.start();
 
         // Start peer health checks
         healthManager?.start();
@@ -797,6 +839,9 @@ const plugin = {
         );
       },
       async stop(_ctx) {
+        // Stop DNS-SD discovery
+        discoveryManager?.stop();
+
         // Stop peer health checks
         healthManager?.stop();
         auditLogger.close();

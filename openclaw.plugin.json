@@ -259,6 +259,34 @@
             }
           }
         }
+      },
+      "discovery": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "DNS-SD based dynamic agent discovery. Disabled by default. When enabled, the gateway queries DNS SRV + TXT records to find peer agents on the local network.",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable DNS-SD based peer discovery"
+          },
+          "serviceName": {
+            "type": "string",
+            "default": "_a2a._tcp.local",
+            "description": "DNS-SD service name to query for SRV records"
+          },
+          "refreshIntervalMs": {
+            "type": "number",
+            "default": 30000,
+            "minimum": 1000,
+            "description": "How often to re-query DNS for peer discovery (milliseconds)"
+          },
+          "mergeWithStatic": {
+            "type": "boolean",
+            "default": true,
+            "description": "When true, discovered peers supplement static peers config. Static peers take precedence on name collision."
+          }
+        }
       }
     }
   },
