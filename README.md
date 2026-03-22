@@ -572,13 +572,13 @@ The agent will follow the skill's procedure automatically.
 - ✅ Metrics endpoint optional bearer auth (`observability.metricsAuth: "bearer"`)
 - ✅ Extract file URLs from agent text responses (markdown links, bare URLs) into outbound FileParts — only recognized file extensions are promoted
 - ✅ Cross-implementation compatibility test matrix ([docs/COMPATIBILITY.md](docs/COMPATIBILITY.md))
+- ✅ **P10** Automatic transport fallback: JSON-RPC → REST → gRPC with retryable-error classification
 
 ### Next
 
 - Rule-based routing: choose peer + target agentId based on message type/tags/skills
 - DNS-based dynamic agent discovery (mDNS/DNS-SD) instead of hardcoded peer URLs
 - Push notifications support (store + sender) for long-running tasks
-- Automatic transport fallback (JSON-RPC → REST/gRPC)
 
 ## License
 

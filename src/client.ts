@@ -15,6 +15,11 @@ import type { MessageSendParams, Message } from "@a2a-js/sdk";
 import type { OutboundSendResult, PeerConfig, RetryConfig } from "./types.js";
 import type { PeerHealthManager } from "./peer-health.js";
 import { withRetry } from "./peer-retry.js";
+import {
+  orderTransports,
+  isRetryableTransportError,
+  type TransportEndpoint,
+} from "./transport-fallback.js";
 
 /**
  * Build an AuthenticationHandler for bearer or apiKey auth.
@@ -129,7 +134,7 @@ export class A2AClient {
       };
     }
 
-    const doSend = () => this.doSendMessage(peer, message);
+    const doSend = () => this.doSendMessage(peer, message, options?.log);
 
     let result: OutboundSendResult;
     if (retryConfig && retryConfig.maxRetries > 0) {
@@ -151,52 +156,191 @@ export class A2AClient {
   }
 
   /**
-   * Core send logic (no retry / circuit breaker wrapping).
+   * Core send logic with automatic transport fallback.
+   *
+   * 1. Resolve the Agent Card to discover available transports.
+   * 2. Build the ordered list of transports (JSON-RPC > REST > gRPC).
+   * 3. Try sending via the preferred transport; on transport-level errors
+   *    (connection, timeout, 5xx) fall back to the next available transport.
+   * 4. Auth errors (401/403) and A2A protocol errors are NOT retried on
+   *    a different transport — they would fail identically.
    */
   private async doSendMessage(
     peer: PeerConfig,
     message: Record<string, unknown>,
+    log?: (level: "info" | "warn", msg: string, details?: Record<string, unknown>) => void,
   ): Promise<OutboundSendResult> {
-    const { baseUrl } = parseAgentCardUrl(peer.agentCardUrl);
-    const { factory, path } = this.buildFactory(peer);
+    const { baseUrl, path } = parseAgentCardUrl(peer.agentCardUrl);
+    const { factory } = this.buildFactory(peer);
+
+    // ------------------------------------------------------------------
+    // 1. Build the outbound A2A message (shared across all transports)
+    // ------------------------------------------------------------------
+    const targetAgentId = typeof (message as any)?.agentId === "string" ? String((message as any).agentId) : "";
+
+    const outboundMessage: any = {
+      kind: "message",
+      messageId: (message.messageId as string) || uuidv4(),
+      role: (message.role as Message["role"]) || "user",
+      parts: (message.parts as Message["parts"]) || [
+        { kind: "text", text: String(message.text || message.message || "") },
+      ],
+    };
+
+    if (targetAgentId) {
+      outboundMessage.agentId = targetAgentId;
+    }
+
+    const sendParams: MessageSendParams = {
+      message: outboundMessage,
+    };
+
+    const serviceParameters: Record<string, string> = {};
+    if (peer.auth?.token) {
+      if (peer.auth.type === "bearer") {
+        serviceParameters.authorization = `Bearer ${peer.auth.token}`;
+      } else {
+        serviceParameters["x-api-key"] = peer.auth.token;
+      }
+    }
+
+    const requestOptions = {
+      serviceParameters: Object.keys(serviceParameters).length ? serviceParameters : undefined,
+    };
+
+    // ------------------------------------------------------------------
+    // 2. Resolve the Agent Card and build ordered transport list
+    // ------------------------------------------------------------------
+    let transports: TransportEndpoint[];
 
     try {
-      const client = await factory.createFromUrl(baseUrl, path);
+      // Use SDK's card resolver (which already handles auth)
+      const resolver = new DefaultAgentCardResolver({
+        fetchImpl: peer.auth?.token
+          ? createAuthenticatingFetchWithRetry(fetch, createAuthHandler(peer)!)
+          : fetch,
+      });
+      const agentCard = await resolver.resolve(baseUrl, path);
 
-      const targetAgentId = typeof (message as any)?.agentId === "string" ? String((message as any).agentId) : "";
+      // Build transport list: main URL + additionalInterfaces
+      const mainTransport = agentCard.preferredTransport ?? "JSONRPC";
+      const allInterfaces: TransportEndpoint[] = [
+        { url: agentCard.url, transport: mainTransport },
+      ];
 
-      const outboundMessage: any = {
-        kind: "message",
-        messageId: (message.messageId as string) || uuidv4(),
-        role: (message.role as Message["role"]) || "user",
-        parts: (message.parts as Message["parts"]) || [
-          { kind: "text", text: String(message.text || message.message || "") },
-        ],
-      };
-
-      // OpenClaw extension: allow per-message routing to a specific agentId on the peer.
-      // Note: gRPC transport uses protobuf Message and may drop unknown fields.
-      if (targetAgentId) {
-        outboundMessage.agentId = targetAgentId;
-      }
-
-      const sendParams: MessageSendParams = {
-        message: outboundMessage,
-      };
-
-      const serviceParameters: Record<string, string> = {};
-      if (peer.auth?.token) {
-        if (peer.auth.type === "bearer") {
-          serviceParameters.authorization = `Bearer ${peer.auth.token}`;
-        } else {
-          serviceParameters["x-api-key"] = peer.auth.token;
+      if (agentCard.additionalInterfaces) {
+        for (const iface of agentCard.additionalInterfaces) {
+          // Avoid duplicate of the main endpoint
+          if (iface.url !== agentCard.url || iface.transport !== mainTransport) {
+            allInterfaces.push({ url: iface.url, transport: iface.transport });
+          }
         }
       }
 
-      const result = await client.sendMessage(sendParams, {
-        serviceParameters: Object.keys(serviceParameters).length ? serviceParameters : undefined,
+      transports = orderTransports(allInterfaces);
+    } catch {
+      // Card resolution failed — fall back to single-transport path
+      // (let the SDK pick whatever it can)
+      transports = [];
+    }
+
+    // ------------------------------------------------------------------
+    // 3. Fallback loop: try each transport in priority order
+    // ------------------------------------------------------------------
+    if (transports.length <= 1) {
+      // No fallback candidates — use original single-transport path
+      return this.doSendViaFactory(factory, baseUrl, path, sendParams, requestOptions);
+    }
+
+    let lastError: unknown;
+    for (let i = 0; i < transports.length; i++) {
+      const endpoint = transports[i];
+
+      log?.("info", "transport.try", {
+        peer: peer.name,
+        transport: endpoint.transport,
+        url: endpoint.url,
+        attempt: i + 1,
+        total: transports.length,
       });
 
+      try {
+        const result = await this.doSendViaTransport(
+          peer,
+          endpoint,
+          sendParams,
+          requestOptions,
+        );
+
+        // Success or non-retryable failure → return immediately
+        if (result.ok || !isRetryableTransportError(result)) {
+          if (i > 0) {
+            log?.("info", "transport.fallback.success", {
+              peer: peer.name,
+              transport: endpoint.transport,
+              url: endpoint.url,
+              attemptIndex: i,
+            });
+          }
+          return result;
+        }
+
+        // Retryable failure — try next transport
+        lastError = result;
+        log?.("warn", "transport.fallback", {
+          peer: peer.name,
+          failedTransport: endpoint.transport,
+          statusCode: result.statusCode,
+          error: (result.response as any)?.error,
+        });
+      } catch (error: unknown) {
+        if (!isRetryableTransportError(error)) {
+          // Non-retryable error (auth, protocol) → stop immediately
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return {
+            ok: false,
+            statusCode: 500,
+            response: { error: errorMessage },
+          };
+        }
+
+        // Retryable error — try next transport
+        lastError = error;
+        log?.("warn", "transport.fallback", {
+          peer: peer.name,
+          failedTransport: endpoint.transport,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    // All transports exhausted
+    const errorMessage = lastError instanceof Error
+      ? lastError.message
+      : typeof lastError === "object" && lastError && "response" in lastError
+        ? ((lastError as any).response as any)?.error ?? String(lastError)
+        : String(lastError);
+
+    return {
+      ok: false,
+      statusCode: 500,
+      response: { error: `All transports failed for peer "${peer.name}": ${errorMessage}` },
+    };
+  }
+
+  /**
+   * Send via the SDK's ClientFactory (original single-transport path).
+   */
+  private async doSendViaFactory(
+    factory: ClientFactory,
+    baseUrl: string,
+    path: string,
+    sendParams: MessageSendParams,
+    requestOptions: { serviceParameters?: Record<string, string> },
+  ): Promise<OutboundSendResult> {
+    try {
+      const client = await factory.createFromUrl(baseUrl, path);
+      const result = await client.sendMessage(sendParams, requestOptions);
       return {
         ok: true,
         statusCode: 200,
@@ -209,6 +353,59 @@ export class A2AClient {
         statusCode: 500,
         response: { error: errorMessage },
       };
+    }
+  }
+
+  /**
+   * Send via a specific transport endpoint, creating the transport directly.
+   */
+  private async doSendViaTransport(
+    peer: PeerConfig,
+    endpoint: TransportEndpoint,
+    sendParams: MessageSendParams,
+    requestOptions: { serviceParameters?: Record<string, string> },
+  ): Promise<OutboundSendResult> {
+    const authHandler = createAuthHandler(peer);
+    const authFetch = authHandler
+      ? createAuthenticatingFetchWithRetry(fetch, authHandler)
+      : fetch;
+
+    let transport;
+
+    switch (endpoint.transport) {
+      case "JSONRPC": {
+        const factory = new JsonRpcTransportFactory({ fetchImpl: authFetch });
+        transport = await factory.create(endpoint.url, {} as any);
+        break;
+      }
+      case "HTTP+JSON": {
+        const factory = new RestTransportFactory({ fetchImpl: authFetch });
+        transport = await factory.create(endpoint.url, {} as any);
+        break;
+      }
+      case "GRPC": {
+        const factory = new GrpcTransportFactory();
+        transport = await factory.create(endpoint.url, {} as any);
+        break;
+      }
+      default:
+        return {
+          ok: false,
+          statusCode: 500,
+          response: { error: `Unsupported transport: ${endpoint.transport}` },
+        };
+    }
+
+    try {
+      const result = await transport.sendMessage(sendParams, requestOptions);
+      return {
+        ok: true,
+        statusCode: 200,
+        response: result as unknown as Record<string, unknown>,
+      };
+    } catch (error: unknown) {
+      // Re-throw so the fallback loop can classify the error
+      throw error;
     }
   }
 }
