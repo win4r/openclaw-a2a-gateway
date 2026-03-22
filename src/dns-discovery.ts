@@ -164,9 +164,11 @@ export class DnsDiscoveryManager {
       clearInterval(this.timer);
       this.timer = null;
     }
+    const cleared = this.discoveredPeers.length;
+    this.discoveredPeers = [];
     this.running = false;
     this.log("info", "dns-discovery.stop", {
-      peersCleared: this.discoveredPeers.length,
+      peersCleared: cleared,
     });
   }
 
@@ -193,11 +195,12 @@ export class DnsDiscoveryManager {
    */
   private refresh(): void {
     this.discover().catch((err) => {
+      // Always evict expired peers even when DNS fails
+      this.evictExpired();
       this.log("warn", "dns-discovery.refresh-failed", {
         error: err instanceof Error ? err.message : String(err),
         retainedPeers: this.discoveredPeers.length,
       });
-      // Graceful degradation: keep last known peers
     });
   }
 
