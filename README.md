@@ -288,9 +288,7 @@ The plugin supports all three A2A Part types for inbound messages. Since the Ope
 | `FilePart` (base64) | `[Attached: photo.png (image/png), inline 45KB]` | Inline file with size hint |
 | `DataPart` | `[Data (application/json): {"key":"value"}]` | Structured JSON data (truncated at 2KB) |
 
-For outbound responses, the plugin converts structured `mediaUrl`/`mediaUrls` fields from the agent payload into `FilePart` entries in the A2A response.
-
-> **Note:** Outbound FilePart generation relies on structured `mediaUrl`/`mediaUrls` fields in the agent payload. URLs embedded in plain text (e.g., markdown links) are not automatically extracted into FileParts.
+For outbound responses, the plugin converts structured `mediaUrl`/`mediaUrls` fields from the agent payload into `FilePart` entries in the A2A response. Additionally, file URLs embedded in the agent's text response (markdown links like `[report](https://…/report.pdf)` and bare URLs like `https://…/data.csv`) are automatically extracted into `FilePart` entries when they end with a recognized file extension.
 
 ### a2a_send_file Agent Tool
 
@@ -572,6 +570,7 @@ The agent will follow the skill's procedure automatically.
 - ✅ **P9** Cross-platform tasksDir default path `~/.openclaw/a2a-tasks` (direct commit)
 - ✅ **v1.0.1** Ed25519 device identity for OpenClaw ≥2026.3.13 scope compatibility (commit 84f440c)
 - ✅ Metrics endpoint optional bearer auth (`observability.metricsAuth: "bearer"`)
+- ✅ Extract file URLs from agent text responses (markdown links, bare URLs) into outbound FileParts — only recognized file extensions are promoted
 
 ### Next
 
@@ -580,7 +579,6 @@ The agent will follow the skill's procedure automatically.
 - Push notifications support (store + sender) for long-running tasks
 - Automatic transport fallback (JSON-RPC → REST/gRPC)
 - Cross-implementation compatibility test matrix (Google reference server, etc.)
-- Extract URLs from agent text responses (markdown links, bare URLs) into outbound FileParts
 
 ## License
 

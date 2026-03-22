@@ -275,8 +275,74 @@ function extractAgentResponse(payload: unknown): AgentResponse | undefined {
 }
 
 /**
+ * File extensions that indicate a URL points to a downloadable file rather
+ * than a regular web page. Only URLs ending with one of these extensions
+ * (case-insensitive) are promoted to FileParts.
+ */
+const FILE_EXTENSIONS = new Set([
+  ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg",
+  ".csv", ".json", ".xml", ".yaml", ".yml",
+  ".zip", ".gz", ".tar", ".rar", ".7z",
+  ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+  ".txt", ".md", ".rtf",
+  ".mp3", ".mp4", ".wav", ".ogg", ".flac", ".aac", ".webm", ".avi", ".mov",
+]);
+
+/**
+ * Extract file URLs from agent text content. Captures:
+ * 1. Markdown links: `[text](url)` → the url portion
+ * 2. Bare URLs: `https?://...` not already inside markdown link parentheses
+ *
+ * Only URLs that end with a recognized file extension are returned.
+ * Results are deduplicated and any URLs already present in `existingUrls`
+ * are excluded to avoid duplicate FileParts.
+ */
+export function extractUrlsFromText(text: string, existingUrls: string[] = []): string[] {
+  const existingSet = new Set(existingUrls);
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  // 1. Extract markdown link URLs: [text](url)
+  const mdLinkRe = /\[(?:[^\]]*)\]\((https?:\/\/[^)]+)\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = mdLinkRe.exec(text)) !== null) {
+    const url = match[1];
+    if (!seen.has(url)) {
+      seen.add(url);
+    }
+  }
+
+  // 2. Extract bare URLs not inside markdown link parentheses.
+  // We replace markdown links first to avoid double-matching.
+  const textWithoutMdLinks = text.replace(/\[(?:[^\]]*)\]\(https?:\/\/[^)]+\)/g, "");
+  const bareUrlRe = /https?:\/\/[^\s<>"')\]]+/g;
+  while ((match = bareUrlRe.exec(textWithoutMdLinks)) !== null) {
+    const url = match[0];
+    if (!seen.has(url)) {
+      seen.add(url);
+    }
+  }
+
+  // Filter to file URLs only and exclude already-known media URLs
+  for (const url of seen) {
+    // Extract the path portion (before query string / fragment)
+    const pathPart = url.split("?")[0].split("#")[0];
+    const dotIdx = pathPart.lastIndexOf(".");
+    if (dotIdx === -1) continue;
+
+    const ext = pathPart.slice(dotIdx).toLowerCase();
+    if (FILE_EXTENSIONS.has(ext) && !existingSet.has(url)) {
+      result.push(url);
+    }
+  }
+
+  return result;
+}
+
+/**
  * Build A2A Part array from an AgentResponse. Produces TextPart for text
- * content and FilePart entries for each media URL.
+ * content, FilePart entries for each media URL, and additional FileParts
+ * for file URLs discovered in the text content.
  */
 function buildResponseParts(response: AgentResponse): Part[] {
   const parts: Part[] = [];
@@ -290,6 +356,17 @@ function buildResponseParts(response: AgentResponse): Part[] {
       kind: "file",
       file: { uri: url },
     });
+  }
+
+  // Extract file URLs from text that are not already in mediaUrls
+  if (response.text) {
+    const textUrls = extractUrlsFromText(response.text, response.mediaUrls);
+    for (const url of textUrls) {
+      parts.push({
+        kind: "file",
+        file: { uri: url },
+      });
+    }
   }
 
   // Ensure at least one part exists (A2A requires non-empty parts array)
