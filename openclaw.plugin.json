@@ -144,11 +144,13 @@
             "description": "Routing rules for auto-selecting peer + agentId based on message content",
             "items": {
               "type": "object",
+              "additionalProperties": false,
               "required": ["name", "match", "target"],
               "properties": {
                 "name": { "type": "string", "description": "Human-readable rule name" },
                 "match": {
                   "type": "object",
+                  "additionalProperties": false,
                   "properties": {
                     "pattern": { "type": "string", "description": "Regex pattern (case-insensitive)" },
                     "tags": { "type": "array", "items": { "type": "string" }, "description": "Match any tag (OR)" },
@@ -157,6 +159,7 @@
                 },
                 "target": {
                   "type": "object",
+                  "additionalProperties": false,
                   "required": ["peer"],
                   "properties": {
                     "peer": { "type": "string", "description": "Target peer name" },

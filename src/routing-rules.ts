@@ -139,11 +139,13 @@ function matchesRule(
   message: { text: string; tags?: string[] },
   peerSkills?: Map<string, string[]>,
 ): boolean {
-  // Pattern matching (case-insensitive)
+  // Pattern matching (case-insensitive, with length limit to mitigate ReDoS)
   if (rule.match.pattern) {
+    if (rule.match.pattern.length > 500) return false; // reject overly complex patterns
     try {
       const re = new RegExp(rule.match.pattern, "i");
-      if (!re.test(message.text)) return false;
+      // Test against a truncated message to limit backtracking surface
+      if (!re.test(message.text.slice(0, 10_000))) return false;
     } catch {
       // Invalid regex → rule cannot match
       return false;
