@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.0] - 2026-03-23
+
+### Added
+
+- URL-to-FilePart extraction — automatically detects file URLs in agent text responses and converts them to outbound A2A FileParts (PR #35)
+- Cross-implementation compatibility test matrix with 20 test cases covering Agent Card, task lifecycle, streaming, and file transfer across SDK versions (PR #36)
+- Automatic transport fallback — tries JSON-RPC → REST → gRPC in priority order with error classification and per-peer transport caching (PR #37)
+- **P8**: Push notifications for long-running tasks — webhook registration, event delivery with retry, HMAC signature verification, SSRF-safe URL validation (PR #38)
+- Rule-based routing engine — route outbound messages by pattern match, tag match, round-robin, and weighted random strategies with priority ordering (PR #39)
+- DNS-SD dynamic agent discovery — resolve `_a2a._tcp` SRV/TXT records, auto-register discovered peers, periodic refresh with TTL-based eviction (PR #40)
+
+### Security
+
+- Push notification webhook endpoints protected with bearer auth middleware (PR #38)
+- Webhook URL registration validates against SSRF via existing `validateUri` (PR #38)
+- Routing rule regex patterns capped at 500 chars, message input truncated at 10K to mitigate ReDoS (PR #39)
+- DNS discovery evicts expired peers on refresh failure to prevent stale routing (PR #40)
+
+### Fixed
+
+- SDK `pushNotifications: true` in Agent Card triggered built-in flow conflicts — set to `false` with custom implementation (PR #38)
+- `stop()` in DNS discovery now clears `discoveredPeers` map to prevent memory leaks (PR #40)
+
 ## [1.0.1] - 2026-03-17
 
 ### Added
@@ -66,6 +89,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Task lifecycle management (create, get, cancel)
 - English and Chinese README
 
+[1.1.0]: https://github.com/win4r/openclaw-a2a-gateway/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/win4r/openclaw-a2a-gateway/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/win4r/openclaw-a2a-gateway/compare/v0.1.0...v1.0.0
 [0.1.0]: https://github.com/win4r/openclaw-a2a-gateway/commits/v0.1.0
