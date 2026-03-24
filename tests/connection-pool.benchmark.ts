@@ -1,34 +1,45 @@
 /**
- * Connection Pool Benchmark
+ * Connection Pool Benchmark (Real HTTP Server)
  *
- * Tests performance improvement with connection pooling.
+ * Tests performance improvement with connection pooling using real HTTP server.
  */
 
+import { createServer } from "http";
 import { ConnectionPool } from "../src/connection-pool.js";
 
-async function runBenchmark(iterations: number = 1000): Promise<void> {
-  const endpoint = "http://localhost:18800";
+// Create a simple HTTP test server
+function createTestServer(port: number): Promise<ReturnType<typeof createServer>> {
+  return new Promise((resolve) => {
+    const server = createServer((req, res) => {
+      // Simulate processing time (50ms)
+      setTimeout(() => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ result: "ok", timestamp: Date.now() }));
+      }, 50);
+    });
 
-  console.log("=== Connection Pool Benchmark ===");
+    server.listen(port, () => {
+      resolve(server);
+    });
+  });
+}
+
+async function runRealBenchmark(iterations: number = 100): Promise<void> {
+  const PORT = 34567;
+  const server = await createTestServer(PORT);
+  const endpoint = `http://localhost:${PORT}`;
+
+  console.log("=== Connection Pool Benchmark (Real HTTP) ===");
   console.log(`Iterations: ${iterations}`);
+  console.log(`Server: http://localhost:${PORT}`);
   console.log();
 
-  // Test 1: No pooling (sequential)
-  console.log("Test 1: No pooling (sequential)");
+  // Test 1: Direct HTTP requests (no pooling)
+  console.log("Test 1: Direct HTTP requests (no pooling)");
   const start1 = Date.now();
 
   for (let i = 0; i < iterations; i++) {
-    // Simulate message send without pooling
-    const conn = {
-      id: `conn_${i}`,
-      endpoint,
-      createdAt: Date.now(),
-      lastUsed: Date.now(),
-      isActive: true,
-    };
-
-    // Simulate send delay (1ms)
-    await new Promise(resolve => setTimeout(resolve, 1));
+    await fetch(`${endpoint}/test`);
   }
 
   const end1 = Date.now();
@@ -38,10 +49,12 @@ async function runBenchmark(iterations: number = 1000): Promise<void> {
   console.log(`Throughput: ${(iterations / time1 * 1000).toFixed(2)} msg/s`);
   console.log();
 
-  // Test 2: With connection pool
-  console.log("Test 2: With connection pool");
+  // Test 2: Connection pool simulation
+  console.log("Test 2: Connection pool simulation");
   const pool = new ConnectionPool({
     maxConnections: 10,
+    connectionTtlMs: 60000,
+    idleCheckIntervalMs: 1000,
   });
 
   const start2 = Date.now();
@@ -49,8 +62,8 @@ async function runBenchmark(iterations: number = 1000): Promise<void> {
   for (let i = 0; i < iterations; i++) {
     const connection = await pool.acquire(endpoint);
 
-    // Simulate send delay (1ms)
-    await new Promise(resolve => setTimeout(resolve, 1));
+    // Simulate HTTP request with keep-alive
+    await fetch(`${endpoint}/test`);
 
     pool.release(connection.id);
   }
@@ -62,10 +75,13 @@ async function runBenchmark(iterations: number = 1000): Promise<void> {
   console.log(`Throughput: ${(iterations / time2 * 1000).toFixed(2)} msg/s`);
   console.log();
 
-  // Test 3: Concurrent requests
-  console.log("Test 3: Concurrent requests (50 concurrent)");
+  // Test 3: Concurrent requests with connection pool
+  console.log("Test 3: Concurrent requests (50 concurrent) with connection pool");
   const pool2 = new ConnectionPool({
     maxConnections: 10,
+    maxConnectionsPerEndpoint: 5,
+    connectionTtlMs: 60000,
+    idleCheckIntervalMs: 1000,
   });
 
   const start3 = Date.now();
@@ -75,7 +91,7 @@ async function runBenchmark(iterations: number = 1000): Promise<void> {
     promises.push(
       (async () => {
         const connection = await pool2.acquire(endpoint);
-        await new Promise(resolve => setTimeout(resolve, 1));
+        await fetch(`${endpoint}/test`);
         pool2.release(connection.id);
       })()
     );
@@ -101,20 +117,26 @@ async function runBenchmark(iterations: number = 1000): Promise<void> {
 
   // Performance comparison
   console.log("=== Performance Comparison ===");
-  const latencyImprovement = ((time1 - time2) / time1 * 100).toFixed(1);
-  const throughputImprovement = ((iterations / time2 - iterations / time1) / (iterations / time1) * 100).toFixed(1);
+  if (time1 > 0) {
+    const latencyImprovement = ((time1 - time2) / time1 * 100).toFixed(1);
+    const throughputImprovement = ((iterations / time2 - iterations / time1) / (iterations / time1) * 100).toFixed(1);
 
-  console.log(`Latency improvement: ${latencyImprovement}%`);
-  console.log(`Throughput improvement: ${throughputImprovement}%`);
+    console.log(`Latency improvement: ${latencyImprovement}%`);
+    console.log(`Throughput improvement: ${throughputImprovement}%`);
+  }
   console.log();
 
+  // Cleanup
   pool.destroy();
   pool2.destroy();
+  server.close();
 }
 
 // Run benchmark if executed directly
 if (import.meta.url === `file://${process.argv[1]}`) {
-  runBenchmark(1000).catch(console.error);
+  runRealBenchmark(100)
+    .then(() => console.log("Benchmark completed successfully"))
+    .catch(console.error);
 }
 
-export { runBenchmark };
+export { runRealBenchmark };
