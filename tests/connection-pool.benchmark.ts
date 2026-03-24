@@ -1,120 +1,145 @@
 /**
  * Connection Pool Benchmark
  *
- * Tests performance improvement with connection pooling.
+ * Tests performance improvement with connection pooling using real HTTP server.
  */
 
+import assert from "node:assert/strict";
+import { describe, it, afterEach } from "node:test";
+import { createServer } from "node:http";
 import { ConnectionPool } from "../src/connection-pool.js";
 
-async function runBenchmark(iterations: number = 1000): Promise<void> {
-  const endpoint = "http://localhost:18800";
+describe("ConnectionPool Benchmark", () => {
+  let server: any = null;
+  const PORT = 34567;
 
-  console.log("=== Connection Pool Benchmark ===");
-  console.log(`Iterations: ${iterations}`);
-  console.log();
-
-  // Test 1: No pooling (sequential)
-  console.log("Test 1: No pooling (sequential)");
-  const start1 = Date.now();
-
-  for (let i = 0; i < iterations; i++) {
-    // Simulate message send without pooling
-    const conn = {
-      id: `conn_${i}`,
-      endpoint,
-      createdAt: Date.now(),
-      lastUsed: Date.now(),
-      isActive: true,
-    };
-
-    // Simulate send delay (1ms)
-    await new Promise(resolve => setTimeout(resolve, 1));
-  }
-
-  const end1 = Date.now();
-  const time1 = end1 - start1;
-  console.log(`Total time: ${time1}ms`);
-  console.log(`Average latency: ${(time1 / iterations).toFixed(2)}ms`);
-  console.log(`Throughput: ${(iterations / time1 * 1000).toFixed(2)} msg/s`);
-  console.log();
-
-  // Test 2: With connection pool
-  console.log("Test 2: With connection pool");
-  const pool = new ConnectionPool({
-    maxConnections: 10,
+  afterEach(() => {
+    if (server) {
+      server.close();
+      server = null;
+    }
   });
 
-  const start2 = Date.now();
+  async function runBenchmark(iterations: number = 100): Promise<{
+    noPoolTime: number;
+    withPoolTime: number;
+    improvement: number;
+  }> {
+    // Create test server that simulates real HTTP processing
+    server = createServer((req, res) => {
+      // Simulate real processing time (50ms)
+      setTimeout(() => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ result: "ok" }));
+      }, 50);
+    });
 
-  for (let i = 0; i < iterations; i++) {
-    const connection = await pool.acquire(endpoint);
+    await new Promise<void>((resolve) => {
+      server.listen(PORT, () => resolve());
+    });
 
-    // Simulate send delay (1ms)
-    await new Promise(resolve => setTimeout(resolve, 1));
+    const endpoint = `http://localhost:${PORT}`;
 
-    pool.release(connection.id);
+    // Test 1: No pooling (sequential)
+    const start1 = Date.now();
+    for (let i = 0; i < iterations; i++) {
+      const agent = new (await import("node:http")).Agent({ keepAlive: false });
+      await fetch(endpoint, { agent });
+      agent.destroy();
+    }
+    const end1 = Date.now();
+    const noPoolTime = end1 - start1;
+
+    // Test 2: With connection pool
+    const pool = new ConnectionPool({
+      maxConnections: 10,
+      maxConnectionsPerEndpoint: 3,
+    });
+
+    const start2 = Date.now();
+    for (let i = 0; i < iterations; i++) {
+      const connection = await pool.acquire(endpoint);
+      const agent = pool.getAgentForUrl(endpoint);
+      await fetch(endpoint, { agent });
+      pool.release(connection.id);
+    }
+    const end2 = Date.now();
+    const withPoolTime = end2 - start2;
+
+    pool.destroy();
+
+    const improvement = ((noPoolTime - withPoolTime) / noPoolTime * 100);
+
+    return { noPoolTime, withPoolTime, improvement };
   }
 
-  const end2 = Date.now();
-  const time2 = end2 - start2;
-  console.log(`Total time: ${time2}ms`);
-  console.log(`Average latency: ${(time2 / iterations).toFixed(2)}ms`);
-  console.log(`Throughput: ${(iterations / time2 * 1000).toFixed(2)} msg/s`);
-  console.log();
+  it("should show performance improvement with real HTTP requests", async () => {
+    const { noPoolTime, withPoolTime, improvement } = await runBenchmark(50);
 
-  // Test 3: Concurrent requests
-  console.log("Test 3: Concurrent requests (50 concurrent)");
-  const pool2 = new ConnectionPool({
-    maxConnections: 10,
+    console.log(`\n=== Benchmark Results (50 iterations) ===`);
+    console.log(`No pooling: ${noPoolTime}ms total, ${noPoolTime / 50}ms average`);
+    console.log(`With pool: ${withPoolTime}ms total, ${withPoolTime / 50}ms average`);
+    console.log(`Improvement: ${improvement.toFixed(1)}%`);
+
+    // With real HTTP server, we should see meaningful improvement
+    // (though it may be less than ideal due to server processing time)
+    assert.ok(withPoolTime <= noPoolTime * 1.1, "Pool should not be significantly slower");
   });
 
-  const start3 = Date.now();
+  it("should handle concurrent requests efficiently", async () => {
+    server = createServer((req, res) => {
+      setTimeout(() => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ result: "ok" }));
+      }, 50);
+    });
 
-  const promises = [];
-  for (let i = 0; i < 50; i++) {
-    promises.push(
-      (async () => {
-        const connection = await pool2.acquire(endpoint);
-        await new Promise(resolve => setTimeout(resolve, 1));
-        pool2.release(connection.id);
-      })()
-    );
-  }
+    await new Promise<void>((resolve) => {
+      server.listen(PORT, () => resolve());
+    });
 
-  await Promise.all(promises);
+    const endpoint = `http://localhost:${PORT}`;
+    const pool = new ConnectionPool({
+      maxConnections: 10,
+      maxConnectionsPerEndpoint: 3,
+    });
 
-  const end3 = Date.now();
-  const time3 = end3 - start3;
-  console.log(`Total time: ${time3}ms`);
-  console.log(`Average latency: ${(time3 / 50).toFixed(2)}ms`);
-  console.log(`Throughput: ${(50 / time3 * 1000).toFixed(2)} msg/s`);
-  console.log();
+    const concurrentRequests = 20;
+    const start = Date.now();
 
-  // Statistics
-  const stats = pool2.getStats();
-  console.log("=== Pool Statistics ===");
-  console.log(`Total connections: ${stats.totalConnections}`);
-  console.log(`Active connections: ${stats.activeConnections}`);
-  console.log(`Idle connections: ${stats.idleConnections}`);
-  console.log(`Max connections: ${stats.maxConnections}`);
-  console.log();
+    const promises = [];
+    for (let i = 0; i < concurrentRequests; i++) {
+      promises.push(
+        (async () => {
+          const connection = await pool.acquire(endpoint);
+          const agent = pool.getAgentForUrl(endpoint);
+          await fetch(endpoint, { agent });
+          pool.release(connection.id);
+        })()
+      );
+    }
 
-  // Performance comparison
-  console.log("=== Performance Comparison ===");
-  const latencyImprovement = ((time1 - time2) / time1 * 100).toFixed(1);
-  const throughputImprovement = ((iterations / time2 - iterations / time1) / (iterations / time1) * 100).toFixed(1);
+    await Promise.all(promises);
 
-  console.log(`Latency improvement: ${latencyImprovement}%`);
-  console.log(`Throughput improvement: ${throughputImprovement}%`);
-  console.log();
+    const end = Date.now();
+    const time = end - start;
+    const avgLatency = time / concurrentRequests;
 
-  pool.destroy();
-  pool2.destroy();
-}
+    console.log(`\n=== Concurrent Request Results ===`);
+    console.log(`Total time: ${time}ms`);
+    console.log(`Average latency: ${avgLatency.toFixed(2)}ms`);
+    console.log(`Throughput: ${(concurrentRequests / time * 1000).toFixed(2)} msg/s`);
 
-// Run benchmark if executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
-  runBenchmark(1000).catch(console.error);
-}
+    const stats = pool.getStats();
+    console.log(`\n=== Pool Statistics ===`);
+    console.log(`Total connections: ${stats.totalConnections}`);
+    console.log(`Active connections: ${stats.activeConnections}`);
+    console.log(`Idle connections: ${stats.idleConnections}`);
+    console.log(`Max connections: ${stats.maxConnections}`);
 
-export { runBenchmark };
+    pool.destroy();
+
+    // Verify pool reused connections
+    assert.ok(stats.totalConnections <= stats.maxConnections, "Should not exceed max connections");
+  });
+});

@@ -19,6 +19,7 @@ import express from "express";
 
 import { buildAgentCard } from "./src/agent-card.js";
 import { A2AClient } from "./src/client.js";
+import { PooledA2AClient } from "./src/pooled-client.js";
 import { OpenClawAgentExecutor } from "./src/executor.js";
 import { QueueingAgentExecutor } from "./src/queueing-executor.js";
 import { runTaskCleanup } from "./src/task-cleanup.js";
@@ -261,7 +262,14 @@ const plugin = {
       structuredLogs: config.observability.structuredLogs,
     });
     const auditLogger = new AuditLogger(config.observability.auditLogPath);
-    const client = new A2AClient();
+    const client = new PooledA2AClient({
+      poolConfig: {
+        maxConnections: 10,
+        maxConnectionsPerEndpoint: 3,
+        connectionTtlMs: 300000, // 5 minutes
+        idleCheckIntervalMs: 60000, // 1 minute
+      },
+    });
     const taskStore = new FileTaskStore(config.storage.tasksDir);
     const executor = new QueueingAgentExecutor(
       new OpenClawAgentExecutor(api, config),
@@ -670,6 +678,11 @@ const plugin = {
         // Stop peer health checks
         healthManager?.stop();
         auditLogger.close();
+
+        // Destroy connection pool (cleanup HTTP agents and timers)
+        if (client instanceof PooledA2AClient) {
+          client.destroy();
+        }
 
         // Stop task cleanup timer
         if (cleanupTimer) {

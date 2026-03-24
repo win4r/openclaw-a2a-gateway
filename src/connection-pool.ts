@@ -3,8 +3,16 @@
  *
  * Provides connection pooling to reduce latency and resource overhead.
  * Reuses HTTP connections across multiple requests, avoiding TCP handshake overhead.
+ *
+ * Key features:
+ * - HTTP/HTTPS connection reuse via keep-alive agents
+ * - Event-driven queue (no polling)
+ * - Per-endpoint connection limits
+ * - Graceful shutdown with signal handlers
  */
 
+import http from "node:http";
+import https from "node:https";
 import { v4 as uuidv4 } from "uuid";
 
 /**
@@ -23,8 +31,11 @@ export interface PooledConnection {
  */
 export interface ConnectionPoolConfig {
   maxConnections?: number;
+  maxConnectionsPerEndpoint?: number;
   connectionTtlMs?: number;
   idleCheckIntervalMs?: number;
+  httpAgent?: http.Agent;
+  httpsAgent?: https.Agent;
 }
 
 /**
@@ -33,65 +44,143 @@ export interface ConnectionPoolConfig {
 export class ConnectionPool {
   private pool: Map<string, PooledConnection> = new Map();
   private activeConnections: Set<string> = new Set();
+  private connectionsByEndpoint: Map<string, Set<string>> = new Map();
+  private waitingQueues: Map<string, Array<(conn: PooledConnection) => void>> = new Map();
+  private isDestroyed: boolean = false;
+
+  // Configuration
   private maxConnections: number;
+  private maxConnectionsPerEndpoint: number;
   private connectionTtlMs: number;
   private idleCheckIntervalMs: number;
+
+  // HTTP Agents for connection reuse
+  private httpAgent: http.Agent;
+  private httpsAgent: https.Agent;
+
+  // Cleanup timer
   private cleanupTimer?: NodeJS.Timeout;
 
   constructor(config: ConnectionPoolConfig = {}) {
     this.maxConnections = config.maxConnections ?? 10;
+    this.maxConnectionsPerEndpoint = config.maxConnectionsPerEndpoint ?? 3;
     this.connectionTtlMs = config.connectionTtlMs ?? 300000; // 5 minutes
     this.idleCheckIntervalMs = config.idleCheckIntervalMs ?? 60000; // 1 minute
+
+    // Create HTTP/HTTPS agents with keep-alive for connection reuse
+    this.httpAgent = config.httpAgent ?? new http.Agent({
+      keepAlive: true,
+      maxSockets: this.maxConnections,
+      maxFreeSockets: this.maxConnectionsPerEndpoint,
+      timeout: 30000,
+    });
+
+    this.httpsAgent = config.httpsAgent ?? new https.Agent({
+      keepAlive: true,
+      maxSockets: this.maxConnections,
+      maxFreeSockets: this.maxConnectionsPerEndpoint,
+      timeout: 30000,
+    });
+
     this.startCleanupTimer();
+    this.setupSignalHandlers();
   }
 
   /**
-   * Acquire a connection from the pool
+   * Get the appropriate agent for a URL (http or https)
+   */
+  getAgentForUrl(url: string): http.Agent | https.Agent {
+    const protocol = new URL(url).protocol;
+    return protocol === "https:" ? this.httpsAgent : this.httpAgent;
+  }
+
+  /**
+   * Acquire a connection from the pool using event-driven queue
    * @returns The acquired connection
    */
   async acquire(endpoint: string): Promise<PooledConnection> {
-    // Check for available idle connection
-    const connectionId = Array.from(this.pool.keys()).find(id => {
+    if (this.isDestroyed) {
+      throw new Error("Connection pool has been destroyed");
+    }
+
+    // Check for available idle connection for this endpoint
+    const endpointConnections = this.connectionsByEndpoint.get(endpoint) || new Set();
+    const availableConnectionId = Array.from(endpointConnections).find(id => {
       const conn = this.pool.get(id);
-      return conn && !this.activeConnections.has(id) && conn.endpoint === endpoint;
+      return conn && !this.activeConnections.has(id);
     });
 
-    if (connectionId) {
-      const connection = this.pool.get(connectionId)!;
+    if (availableConnectionId) {
+      const connection = this.pool.get(availableConnectionId)!;
       connection.lastUsed = Date.now();
       connection.isActive = true;
-      this.activeConnections.add(connectionId);
+      this.activeConnections.add(availableConnectionId);
       return connection;
     }
 
-    // Create new connection if pool is not full
-    if (this.pool.size < this.maxConnections) {
-      const connection: PooledConnection = {
-        id: uuidv4(),
-        endpoint,
-        createdAt: Date.now(),
-        lastUsed: Date.now(),
-        isActive: true,
-      };
-      this.pool.set(connection.id, connection);
-      this.activeConnections.add(connection.id);
-      return connection;
+    // Check per-endpoint limit
+    if (endpointConnections.size >= this.maxConnectionsPerEndpoint) {
+      // Wait for a connection to become available (event-driven)
+      return this.waitForAvailableConnection(endpoint);
     }
 
-    // Pool is full, wait for an available connection
-    return await this.waitForAvailableConnection(endpoint);
+    // Check global limit
+    if (this.pool.size >= this.maxConnections) {
+      // Wait for a connection to become available (event-driven)
+      return this.waitForAvailableConnection(endpoint);
+    }
+
+    // Create new connection
+    const connection: PooledConnection = {
+      id: uuidv4(),
+      endpoint,
+      createdAt: Date.now(),
+      lastUsed: Date.now(),
+      isActive: true,
+    };
+
+    this.pool.set(connection.id, connection);
+    this.activeConnections.add(connection.id);
+    this.connectionsByEndpoint.set(endpoint, new Set([...endpointConnections, connection.id]));
+
+    return connection;
   }
 
   /**
-   * Release a connection back to the pool
+   * Release a connection back to the pool and trigger waiting requests
    * @param connectionId The connection ID to release
    */
   release(connectionId: string): void {
+    if (this.isDestroyed) {
+      return;
+    }
+
     const connection = this.pool.get(connectionId);
-    if (connection) {
-      connection.isActive = false;
-      connection.lastUsed = Date.now();
-      this.activeConnections.delete(connectionId);
+    if (!connection) {
+      return;
+    }
+
+    connection.isActive = false;
+    connection.lastUsed = Date.now();
+    this.activeConnections.delete(connectionId);
+
+    // Check if there are waiting requests for this endpoint
+    const queue = this.waitingQueues.get(connection.endpoint);
+    if (queue && queue.length > 0) {
+      // Trigger next waiting request (event-driven, no polling)
+      const nextResolve = queue.shift();
+      if (nextResolve) {
+        this.activeConnections.add(connectionId);
+        connection.isActive = true;
+        nextResolve(connection);
+      }
+
+      // Update queue
+      if (queue.length === 0) {
+        this.waitingQueues.delete(connection.endpoint);
+      } else {
+        this.waitingQueues.set(connection.endpoint, queue);
+      }
     }
   }
 
@@ -100,6 +189,22 @@ export class ConnectionPool {
    * @param connectionId The connection ID to close
    */
   close(connectionId: string): void {
+    const connection = this.pool.get(connectionId);
+    if (!connection) {
+      return;
+    }
+
+    // Remove from endpoint tracking
+    const endpointConnections = this.connectionsByEndpoint.get(connection.endpoint);
+    if (endpointConnections) {
+      endpointConnections.delete(connectionId);
+      if (endpointConnections.size === 0) {
+        this.connectionsByEndpoint.delete(connection.endpoint);
+      } else {
+        this.connectionsByEndpoint.set(connection.endpoint, endpointConnections);
+      }
+    }
+
     this.pool.delete(connectionId);
     this.activeConnections.delete(connectionId);
   }
@@ -113,6 +218,9 @@ export class ConnectionPool {
       activeConnections: this.activeConnections.size,
       idleConnections: this.pool.size - this.activeConnections.size,
       maxConnections: this.maxConnections,
+      waitingRequests: Array.from(this.waitingQueues.values()).reduce((sum, queue) => sum + queue.length, 0),
+      httpAgentSockets: (this.httpAgent as any).sockets || {},
+      httpsAgentSockets: (this.httpsAgent as any).sockets || {},
     };
   }
 
@@ -120,6 +228,10 @@ export class ConnectionPool {
    * Clean up idle and expired connections
    */
   private cleanupIdleConnections(): void {
+    if (this.isDestroyed) {
+      return;
+    }
+
     const now = Date.now();
     const expiredConnections: string[] = [];
 
@@ -128,7 +240,7 @@ export class ConnectionPool {
         const idleTime = now - connection.lastUsed;
         const age = now - connection.createdAt;
 
-        // Remove if expired by TTL or older than connection TTL
+        // Remove if expired by TTL
         if (idleTime > this.connectionTtlMs || age > this.connectionTtlMs) {
           expiredConnections.push(id);
         }
@@ -151,44 +263,76 @@ export class ConnectionPool {
   }
 
   /**
-   * Stop cleanup timer
+   * Setup signal handlers for graceful shutdown
+   */
+  private setupSignalHandlers(): void {
+    const cleanup = () => {
+      this.destroy();
+    };
+
+    process.on("beforeExit", cleanup);
+    process.on("SIGTERM", cleanup);
+    process.on("SIGINT", cleanup);
+  }
+
+  /**
+   * Remove signal handlers
+   */
+  private removeSignalHandlers(): void {
+    const cleanup = () => {
+      this.destroy();
+    };
+
+    process.off("beforeExit", cleanup);
+    process.off("SIGTERM", cleanup);
+    process.off("SIGINT", cleanup);
+  }
+
+  /**
+   * Wait for an available connection using event-driven queue (no polling)
+   */
+  private async waitForAvailableConnection(endpoint: string): Promise<PooledConnection> {
+    return new Promise((resolve) => {
+      const queue = this.waitingQueues.get(endpoint) || [];
+      queue.push(resolve);
+      this.waitingQueues.set(endpoint, queue);
+    });
+  }
+
+  /**
+   * Stop cleanup timer and destroy all resources
    */
   destroy(): void {
+    if (this.isDestroyed) {
+      return;
+    }
+
+    this.isDestroyed = true;
+
+    // Remove signal handlers
+    this.removeSignalHandlers();
+
+    // Clear cleanup timer
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = undefined;
     }
+
+    // Reject all waiting requests
+    this.waitingQueues.forEach((queue) => {
+      queue.forEach((resolve) => {
+        resolve(new Error("Connection pool destroyed") as any);
+      });
+    });
+    this.waitingQueues.clear();
+
+    // Close all connections
     this.pool.clear();
     this.activeConnections.clear();
-  }
+    this.connectionsByEndpoint.clear();
 
-  /**
-   * Wait for an available connection
-   */
-  private async waitForAvailableConnection(endpoint: string): Promise<PooledConnection> {
-    const maxWaitTime = 5000; // 5 seconds
-    const pollInterval = 100; // 100ms
-    const startTime = Date.now();
-
-    while (Date.now() - startTime < maxWaitTime) {
-      // Check for available connection
-      const connectionId = Array.from(this.pool.keys()).find(id => {
-        const conn = this.pool.get(id);
-        return conn && !this.activeConnections.has(id) && conn.endpoint === endpoint;
-      });
-
-      if (connectionId) {
-        const connection = this.pool.get(connectionId)!;
-        connection.lastUsed = Date.now();
-        connection.isActive = true;
-        this.activeConnections.add(connection.id);
-        return connection;
-      }
-
-      // Wait before retrying
-      await new Promise(resolve => setTimeout(resolve, pollInterval));
-    }
-
-    throw new Error(`Connection pool timeout: no available connection for endpoint ${endpoint}`);
+    // Destroy HTTP agents
+    this.httpAgent.destroy();
+    this.httpsAgent.destroy();
   }
 }
