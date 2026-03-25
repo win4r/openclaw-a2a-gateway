@@ -104,7 +104,12 @@ export class ConnectionPool {
     }
 
     // Check for available idle connection for this endpoint
-    const endpointConnections = this.connectionsByEndpoint.get(endpoint) || new Set();
+    let endpointConnections = this.connectionsByEndpoint.get(endpoint);
+    if (!endpointConnections) {
+      endpointConnections = new Set();
+      this.connectionsByEndpoint.set(endpoint, endpointConnections);
+    }
+
     const availableConnectionId = Array.from(endpointConnections).find(id => {
       const conn = this.pool.get(id);
       return conn && !this.activeConnections.has(id);
