@@ -42,7 +42,41 @@ export class FileTaskStore implements TaskStore {
     const payload = `${JSON.stringify(nextTask, null, 2)}\n`;
 
     await writeFile(tmpPath, payload, "utf8");
-    await rename(tmpPath, targetPath);
+
+    // Windows: atomic rename can intermittently fail with EPERM/EACCES when the
+    // destination file is being scanned/read. This breaks task polling.
+    // Prefer rename (atomic), but fall back to direct write with cleanup.
+    try {
+      await rename(tmpPath, targetPath);
+      return;
+    } catch (error: unknown) {
+      const code = (error as { code?: string } | undefined)?.code;
+      if (code !== "EPERM" && code !== "EACCES") {
+        throw error;
+      }
+
+      // Retry a few times with small backoff; then fall back to overwrite.
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          await new Promise((r) => setTimeout(r, 25 * (attempt + 1)));
+          await rename(tmpPath, targetPath);
+          return;
+        } catch (retryError: unknown) {
+          const retryCode = (retryError as { code?: string } | undefined)?.code;
+          if (retryCode !== "EPERM" && retryCode !== "EACCES") {
+            throw retryError;
+          }
+        }
+      }
+
+      // Non-atomic fallback (best-effort).
+      await writeFile(targetPath, payload, "utf8");
+      try {
+        await unlink(tmpPath);
+      } catch {
+        // ignore
+      }
+    }
   }
 
   /** List all stored task IDs. */
