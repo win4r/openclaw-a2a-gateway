@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { parseRoutingRules, matchRule } from "../src/routing-rules.js";
-import type { RoutingRule } from "../src/routing-rules.js";
+import {
+  parseRoutingRules,
+  matchRule,
+  hillScore,
+  computeAffinity,
+  matchAllRules,
+} from "../src/routing-rules.js";
+import type { RoutingRule, AffinityConfig, ScoredMatch } from "../src/routing-rules.js";
 import { parseConfig } from "../index.js";
 import { createHarness, invokeGatewayMethod, makeConfig } from "./helpers.js";
 
@@ -431,5 +437,208 @@ describe("a2a.send — rule-based routing", () => {
       String(data.error).includes("Peer not found: ExplicitPeer"),
       `Expected 'Peer not found' error but got: ${data.error}`,
     );
+  });
+});
+
+// ===========================================================================
+// Hill equation affinity scoring (Phase 1.1 — Bio-inspired routing)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// hillScore — pure math (Hill 1910)
+// ---------------------------------------------------------------------------
+
+describe("hillScore — Hill equation math", () => {
+  it("half-saturation: hillScore(Kd, n, Kd) === 0.5 for any n", () => {
+    assert.equal(hillScore(0.5, 1, 0.5), 0.5);
+    assert.equal(hillScore(0.5, 2, 0.5), 0.5);
+    assert.equal(hillScore(0.5, 3, 0.5), 0.5);
+  });
+
+  it("full saturation: hillScore(1, n, Kd) approaches 1", () => {
+    // hillScore(1, 2, 0.5) = 1/(0.25+1) = 0.8; higher n → closer to 1
+    assert.ok(hillScore(1, 2, 0.5) === 0.8, `Expected 0.8, got ${hillScore(1, 2, 0.5)}`);
+    assert.ok(hillScore(1, 4, 0.5) > 0.9, `n=4 should give > 0.9`);
+  });
+
+  it("zero affinity: hillScore(0, n, Kd) === 0", () => {
+    assert.equal(hillScore(0, 1, 0.5), 0);
+    assert.equal(hillScore(0, 3, 0.5), 0);
+  });
+
+  it("higher n gives steeper sigmoid: score at 0.8 with n=3 > n=1", () => {
+    const s1 = hillScore(0.8, 1, 0.5);
+    const s3 = hillScore(0.8, 3, 0.5);
+    assert.ok(s3 > s1, `n=3 score ${s3} should be > n=1 score ${s1}`);
+  });
+
+  it("lower n gives gentler curve: score at 0.3 with n=0.5 > n=2", () => {
+    const s05 = hillScore(0.3, 0.5, 0.5);
+    const s2 = hillScore(0.3, 2, 0.5);
+    assert.ok(s05 > s2, `n=0.5 score ${s05} should be > n=2 score ${s2}`);
+  });
+
+  it("score is always in [0, 1] range", () => {
+    for (const a of [0, 0.1, 0.5, 0.9, 1.0]) {
+      for (const n of [0.5, 1, 2, 3]) {
+        const s = hillScore(a, n, 0.5);
+        assert.ok(s >= 0 && s <= 1, `hillScore(${a}, ${n}, 0.5) = ${s} out of range`);
+      }
+    }
+  });
+
+  it("n=1 gives linear-like response (equivalent to Michaelis-Menten)", () => {
+    // At n=1: score = a / (Kd + a). With Kd=0.5, score(0.25) ≈ 0.333
+    const s = hillScore(0.25, 1, 0.5);
+    assert.ok(Math.abs(s - 1 / 3) < 0.001, `Expected ~0.333, got ${s}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeAffinity — weighted combination
+// ---------------------------------------------------------------------------
+
+describe("computeAffinity — affinity calculation", () => {
+  it("full skill match gives high affinity", () => {
+    const rule: RoutingRule = parseRoutingRules([
+      { name: "r", match: { skills: ["a", "b", "c"] }, target: { peer: "P" } },
+    ])[0];
+    const peerSkills = new Map([["P", ["a", "b", "c"]]]);
+    const a = computeAffinity(rule, { text: "" }, peerSkills);
+    assert.ok(a > 0.3, `Expected > 0.3, got ${a}`);
+  });
+
+  it("partial skill match gives lower affinity than full match", () => {
+    const rule: RoutingRule = parseRoutingRules([
+      { name: "r", match: { skills: ["a", "b", "c"] }, target: { peer: "P" } },
+    ])[0];
+    const full = new Map([["P", ["a", "b", "c"]]]);
+    const partial = new Map([["P", ["a"]]]);
+    const aFull = computeAffinity(rule, { text: "" }, full);
+    const aPartial = computeAffinity(rule, { text: "" }, partial);
+    assert.ok(aFull > aPartial, `Full ${aFull} should be > partial ${aPartial}`);
+  });
+
+  it("pattern match contributes to affinity", () => {
+    const rule: RoutingRule = parseRoutingRules([
+      { name: "r", match: { pattern: "hello" }, target: { peer: "P" } },
+    ])[0];
+    const withMatch = computeAffinity(rule, { text: "hello world" });
+    const noMatch = computeAffinity(rule, { text: "goodbye" });
+    assert.ok(withMatch > noMatch, `Match ${withMatch} should be > no match ${noMatch}`);
+  });
+
+  it("tag match ratio is proportional", () => {
+    const rule: RoutingRule = parseRoutingRules([
+      { name: "r", match: { tags: ["a", "b", "c"] }, target: { peer: "P" } },
+    ])[0];
+    const a3 = computeAffinity(rule, { text: "", tags: ["a", "b", "c"] });
+    const a1 = computeAffinity(rule, { text: "", tags: ["a"] });
+    assert.ok(a3 > a1, `3-tag match ${a3} should be > 1-tag match ${a1}`);
+  });
+
+  it("custom weights override defaults", () => {
+    const rule: RoutingRule = parseRoutingRules([
+      { name: "r", match: { pattern: "test", skills: ["x"] }, target: { peer: "P" } },
+    ])[0];
+    const peerSkills = new Map([["P", ["x"]]]);
+    // Skill weight = 1.0, everything else = 0 → affinity = skill_ratio
+    const a = computeAffinity(rule, { text: "test" }, peerSkills, undefined, {
+      skills: 1.0,
+      tags: 0,
+      pattern: 0,
+      successRate: 0,
+    });
+    assert.ok(Math.abs(a - 1.0) < 0.01, `Expected ~1.0 with skill-only weights, got ${a}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// matchAllRules — scored multi-match
+// ---------------------------------------------------------------------------
+
+describe("matchAllRules — scored routing", () => {
+  const rules: RoutingRule[] = parseRoutingRules([
+    { name: "specialist", match: { skills: ["deep-code"] }, target: { peer: "Expert" }, priority: 5 },
+    { name: "generalist", match: { pattern: ".*" }, target: { peer: "General" }, priority: 10 },
+  ]);
+
+  it("returns scored results sorted by score descending", () => {
+    const peerSkills = new Map([["Expert", ["deep-code", "review"]]]);
+    const config: AffinityConfig = { hillCoefficient: 2, kd: 0.5 };
+    const results = matchAllRules(rules, { text: "review code" }, peerSkills, undefined, config);
+    assert.ok(results.length > 0, "Should have results");
+    // All results should have score property
+    for (const r of results) {
+      assert.ok(typeof r.score === "number", `score should be number, got ${typeof r.score}`);
+      assert.ok(r.score >= 0 && r.score <= 1, `score ${r.score} out of [0,1]`);
+    }
+    // Results sorted by score descending
+    for (let i = 1; i < results.length; i++) {
+      assert.ok(results[i - 1].score >= results[i].score,
+        `Results not sorted: ${results[i - 1].score} < ${results[i].score}`);
+    }
+  });
+
+  it("without AffinityConfig, falls back to priority-first (backward compat)", () => {
+    const peerSkills = new Map([["Expert", ["deep-code"]]]);
+    // No affinityConfig → should behave like current matchRule: priority order, first match
+    const results = matchAllRules(rules, { text: "review code" }, peerSkills);
+    assert.ok(results.length > 0);
+    // "generalist" has higher priority (10 > 5), should be first
+    assert.equal(results[0].peer, "General");
+  });
+
+  it("returns empty array when no rules match", () => {
+    const noMatchRules = parseRoutingRules([
+      { name: "nope", match: { pattern: "^impossible$" }, target: { peer: "Bot" } },
+    ]);
+    const results = matchAllRules(noMatchRules, { text: "hello" });
+    assert.equal(results.length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// matchRule backward compatibility with Hill scoring
+// ---------------------------------------------------------------------------
+
+describe("matchRule — backward compatibility with Hill scoring", () => {
+  it("existing tests still pass: matchRule returns first priority match", () => {
+    const rules: RoutingRule[] = parseRoutingRules([
+      { name: "low", match: { pattern: "test" }, target: { peer: "LowBot" }, priority: 1 },
+      { name: "high", match: { pattern: "test" }, target: { peer: "HighBot" }, priority: 100 },
+    ]);
+    const result = matchRule(rules, { text: "this is a test" });
+    assert.deepEqual(result, { peer: "HighBot" });
+  });
+
+  it("matchRule still returns null when no match", () => {
+    assert.equal(matchRule([], { text: "hello" }), null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Performance: 1000 rules < 50ms
+// ---------------------------------------------------------------------------
+
+describe("matchAllRules — performance", () => {
+  it("1000 rules scored in under 50ms", () => {
+    const rawRules = Array.from({ length: 1000 }, (_, i) => ({
+      name: `rule-${i}`,
+      match: { pattern: `keyword${i % 10}`, skills: [`skill${i % 5}`] },
+      target: { peer: `Peer-${i % 20}` },
+      priority: i,
+    }));
+    const rules = parseRoutingRules(rawRules);
+    const peerSkills = new Map(
+      Array.from({ length: 20 }, (_, i) => [`Peer-${i}`, [`skill${i % 5}`, `skill${(i + 1) % 5}`]]),
+    );
+    const config: AffinityConfig = { hillCoefficient: 2, kd: 0.5 };
+
+    const start = performance.now();
+    matchAllRules(rules, { text: "keyword3 test" }, peerSkills, undefined, config);
+    const elapsed = performance.now() - start;
+
+    assert.ok(elapsed < 50, `Took ${elapsed.toFixed(1)}ms, expected < 50ms`);
   });
 });
