@@ -255,7 +255,10 @@
             "additionalProperties": false,
             "properties": {
               "failureThreshold": { "type": "number", "default": 5, "minimum": 1 },
-              "resetTimeoutMs": { "type": "number", "default": 30000, "minimum": 1000 }
+              "resetTimeoutMs": { "type": "number", "default": 30000, "minimum": 1000 },
+              "softThreshold": { "type": "number", "minimum": 1, "description": "Failures before DESENSITIZED state (must be < failureThreshold)" },
+              "desensitizedCapacity": { "type": "number", "default": 0.5, "minimum": 0, "maximum": 1, "description": "Traffic fraction in DESENSITIZED state" },
+              "recoveryRateConstant": { "type": "number", "minimum": 0.01, "description": "Exponential recovery rate k; omit for single-probe mode" }
             }
           }
         }

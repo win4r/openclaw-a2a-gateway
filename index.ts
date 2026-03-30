@@ -250,6 +250,15 @@ export function parseConfig(raw: unknown, resolvePath?: (nextPath: string) => st
       circuitBreaker: {
         failureThreshold: Math.max(1, Math.floor(asNumber(circuitBreaker.failureThreshold, 5))),
         resetTimeoutMs: asNumber(circuitBreaker.resetTimeoutMs, 30_000),
+        ...(circuitBreaker.softThreshold != null ? {
+          softThreshold: Math.max(1, Math.floor(asNumber(circuitBreaker.softThreshold, 0))),
+        } : {}),
+        ...(circuitBreaker.desensitizedCapacity != null ? {
+          desensitizedCapacity: Math.max(0, Math.min(1, asNumber(circuitBreaker.desensitizedCapacity, 0.5))),
+        } : {}),
+        ...(circuitBreaker.recoveryRateConstant != null ? {
+          recoveryRateConstant: Math.max(0.01, asNumber(circuitBreaker.recoveryRateConstant, 1.0)),
+        } : {}),
       },
     },
     discovery: parseDnsDiscoveryConfig(discoveryRaw),
