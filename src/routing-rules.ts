@@ -2,7 +2,14 @@
  * Rule-based routing — choose peer + agentId based on message content.
  *
  * Rules are evaluated at send-time in priority order (higher priority first).
- * The first matching rule wins.
+ * The first matching rule wins (legacy). When {@link AffinityConfig} is
+ * provided, rules are scored using the Hill equation (Hill, 1910) and
+ * returned in descending score order.
+ *
+ * @see Hill, A.V. (1910) "The possible effects of the aggregation of the
+ *   molecules of haemoglobin on its dissociation curves." J Physiol 40, iv–vii.
+ * @see Finlay, D.B. et al. (2020) "100 years of modelling ligand-receptor
+ *   binding and response." Br J Pharmacol 177(7):1472-1484.
  */
 
 // ---------------------------------------------------------------------------
@@ -30,6 +37,53 @@ export interface RoutingRule {
 export interface RoutingMatch {
   peer: string;
   agentId?: string;
+}
+
+/**
+ * Configuration for Hill-equation-based affinity scoring.
+ *
+ * When provided to {@link matchAllRules}, each matching rule is scored using:
+ *
+ *   score = affinity^n / (Kd^n + affinity^n)
+ *
+ * where `affinity` is a weighted combination of match dimensions.
+ */
+export interface AffinityConfig {
+  /**
+   * Hill coefficient (n). Controls the steepness of the scoring sigmoid.
+   * - n = 1: linear response (Michaelis-Menten, equivalent to legacy behavior)
+   * - n > 1: threshold effect ("good enough" peers strongly preferred)
+   * - n < 1: dispersive (spreads load more evenly)
+   * @default 1
+   */
+  hillCoefficient?: number;
+  /**
+   * Half-saturation constant. When affinity equals Kd, score = 0.5.
+   * Lower Kd → stricter (high-affinity receptor analogy).
+   * @default 0.5
+   */
+  kd?: number;
+  /** Per-dimension weights (must sum to ~1 for interpretability). */
+  weights?: AffinityWeights;
+}
+
+export interface AffinityWeights {
+  /** Weight for skill match ratio (matched / required). @default 0.4 */
+  skills?: number;
+  /** Weight for tag match ratio (matched / required). @default 0.3 */
+  tags?: number;
+  /** Weight for pattern match (1 if matched, 0 if not). @default 0.2 */
+  pattern?: number;
+  /** Weight for historical success rate of the peer. @default 0.1 */
+  successRate?: number;
+}
+
+/**
+ * A routing match extended with a Hill-equation affinity score.
+ */
+export interface ScoredMatch extends RoutingMatch {
+  /** Hill score in [0, 1]. Higher = better affinity. */
+  score: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -100,8 +154,159 @@ export function parseRoutingRules(raw: unknown): RoutingRule[] {
 }
 
 // ---------------------------------------------------------------------------
+// Hill equation — pure math
+// ---------------------------------------------------------------------------
+
+const DEFAULT_N = 1;
+const DEFAULT_KD = 0.5;
+const DEFAULT_WEIGHTS: Required<AffinityWeights> = {
+  skills: 0.4,
+  tags: 0.3,
+  pattern: 0.2,
+  successRate: 0.1,
+};
+
+/**
+ * Hill equation: score = affinity^n / (Kd^n + affinity^n)
+ *
+ * When affinity = Kd, score = 0.5 (half-saturation, by definition).
+ *
+ * @param affinity  Raw affinity value in [0, 1].
+ * @param n         Hill coefficient (steepness). n=1 → Michaelis-Menten.
+ * @param kd        Half-saturation constant.
+ * @returns Score in [0, 1].
+ *
+ * @see Hill, A.V. (1910) J Physiol 40, iv–vii.
+ */
+export function hillScore(affinity: number, n: number, kd: number): number {
+  if (affinity <= 0) return 0;
+  if (kd <= 0) return affinity > 0 ? 1 : 0;
+  const an = affinity ** n;
+  const kn = kd ** n;
+  return an / (kn + an);
+}
+
+// ---------------------------------------------------------------------------
+// Affinity computation
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute raw affinity for a (rule, message, peer) triple.
+ *
+ * Affinity is a weighted sum of per-dimension match ratios:
+ *   - skill_match_ratio:  matched skills / required skills   (0-1)
+ *   - tag_match_ratio:    matched tags / required tags       (0-1)
+ *   - pattern_match:      regex matched = 1, else 0
+ *   - success_rate:       historical success rate            (0-1, optional)
+ *
+ * Dimensions that are not specified in the rule contribute their full
+ * weight (1.0), so a rule with only `pattern` set gets pattern + full
+ * credit for skills and tags.  This keeps simple rules competitive.
+ */
+export function computeAffinity(
+  rule: RoutingRule,
+  message: { text: string; tags?: string[] },
+  peerSkills?: Map<string, string[]>,
+  successRates?: Map<string, number>,
+  weights?: AffinityWeights,
+): number {
+  const w = { ...DEFAULT_WEIGHTS, ...weights };
+
+  // --- skill match ratio ---
+  let skillRatio = 1; // default: full credit when not specified
+  if (rule.match.skills && rule.match.skills.length > 0) {
+    const peerSet = peerSkills?.get(rule.target.peer) ?? [];
+    const matched = rule.match.skills.filter((s) => peerSet.includes(s)).length;
+    skillRatio = matched / rule.match.skills.length;
+  }
+
+  // --- tag match ratio ---
+  let tagRatio = 1;
+  if (rule.match.tags && rule.match.tags.length > 0) {
+    const msgTags = message.tags ?? [];
+    const matched = rule.match.tags.filter((t) => msgTags.includes(t)).length;
+    tagRatio = matched / rule.match.tags.length;
+  }
+
+  // --- pattern match ---
+  let patternMatch = 1; // default: full credit when not specified
+  if (rule.match.pattern) {
+    if (rule.match.pattern.length > 500) {
+      patternMatch = 0;
+    } else {
+      try {
+        const re = new RegExp(rule.match.pattern, "i");
+        patternMatch = re.test(message.text.slice(0, 10_000)) ? 1 : 0;
+      } catch {
+        patternMatch = 0;
+      }
+    }
+  }
+
+  // --- success rate ---
+  const successRate = successRates?.get(rule.target.peer) ?? 1;
+
+  return (
+    w.skills * skillRatio +
+    w.tags * tagRatio +
+    w.pattern * patternMatch +
+    w.successRate * successRate
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Matching
 // ---------------------------------------------------------------------------
+
+/**
+ * Score all matching rules using Hill-equation affinity.
+ *
+ * When `affinityConfig` is **not** provided, behaviour is identical to the
+ * legacy priority-first model: matching rules are returned in priority
+ * order with score = 1 for all (backward-compatible).
+ *
+ * When `affinityConfig` **is** provided, each rule that passes the boolean
+ * AND-gate ({@link matchesRule}) is scored via {@link hillScore} over its
+ * {@link computeAffinity} value, and results are sorted by score descending.
+ *
+ * @returns Scored matches, highest score first.
+ */
+export function matchAllRules(
+  rules: RoutingRule[],
+  message: { text: string; tags?: string[] },
+  peerSkills?: Map<string, string[]>,
+  successRates?: Map<string, number>,
+  affinityConfig?: AffinityConfig,
+): ScoredMatch[] {
+  const scored: ScoredMatch[] = [];
+
+  for (const rule of rules) {
+    if (!matchesRule(rule, message, peerSkills)) continue;
+
+    const match: RoutingMatch = {
+      peer: rule.target.peer,
+      ...(rule.target.agentId ? { agentId: rule.target.agentId } : {}),
+    };
+
+    if (!affinityConfig) {
+      // Legacy mode: score = 1 (priority order preserved from parseRoutingRules)
+      scored.push({ ...match, score: 1 });
+    } else {
+      const n = affinityConfig.hillCoefficient ?? DEFAULT_N;
+      const kd = affinityConfig.kd ?? DEFAULT_KD;
+      const raw = computeAffinity(rule, message, peerSkills, successRates, affinityConfig.weights);
+      scored.push({ ...match, score: hillScore(raw, n, kd) });
+    }
+  }
+
+  // When using affinity scoring, sort by score descending.
+  // In legacy mode all scores are 1 so original priority order is preserved.
+  if (affinityConfig) {
+    scored.sort((a, b) => b.score - a.score);
+  }
+
+  return scored;
+}
 
 /**
  * Evaluate rules in priority order against a message.
@@ -122,16 +327,11 @@ export function matchRule(
   message: { text: string; tags?: string[] },
   peerSkills?: Map<string, string[]>,
 ): RoutingMatch | null {
-  for (const rule of rules) {
-    if (!matchesRule(rule, message, peerSkills)) continue;
-
-    return {
-      peer: rule.target.peer,
-      ...(rule.target.agentId ? { agentId: rule.target.agentId } : {}),
-    };
-  }
-
-  return null;
+  // Backward-compatible: no affinity scoring, priority-first.
+  const results = matchAllRules(rules, message, peerSkills);
+  if (results.length === 0) return null;
+  const { score: _, ...match } = results[0];
+  return match;
 }
 
 /**
