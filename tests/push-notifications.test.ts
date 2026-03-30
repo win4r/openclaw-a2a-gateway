@@ -1,8 +1,11 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { PushNotificationStore } from "../src/push-notifications.js";
-import type { PushNotificationConfig } from "../src/push-notifications.js";
+import {
+  PushNotificationStore,
+  computeImportance,
+} from "../src/push-notifications.js";
+import type { PushNotificationConfig, DecayConfig } from "../src/push-notifications.js";
 
 // ---------------------------------------------------------------------------
 // Unit tests — PushNotificationStore in-memory lifecycle
@@ -358,5 +361,157 @@ describe("PushNotificationStore HTTP error responses", () => {
     const result = await store.send("task-refused", "completed", { id: "task-refused" });
     assert.equal(result.ok, false);
     assert.ok(result.error);
+  });
+});
+
+// ===========================================================================
+// Signal decay notifications (Phase 1.3 — Bio-inspired)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// computeImportance — exponential decay (cAMP degradation)
+// ---------------------------------------------------------------------------
+
+describe("computeImportance — signal decay math", () => {
+  it("importance at t=0 equals initial value", () => {
+    assert.equal(computeImportance(1.0, 0, 0.001), 1.0);
+    assert.equal(computeImportance(0.8, 0, 0.01), 0.8);
+  });
+
+  it("importance decays over time", () => {
+    const i0 = computeImportance(1.0, 0, 0.001);
+    const i1 = computeImportance(1.0, 5000, 0.001); // 5s later
+    const i2 = computeImportance(1.0, 30000, 0.001); // 30s later
+    assert.ok(i0 > i1, `t=0 (${i0}) should be > t=5s (${i1})`);
+    assert.ok(i1 > i2, `t=5s (${i1}) should be > t=30s (${i2})`);
+  });
+
+  it("higher decayRate means faster decay", () => {
+    const slow = computeImportance(1.0, 10000, 0.001);
+    const fast = computeImportance(1.0, 10000, 0.01);
+    assert.ok(slow > fast, `slow decay (${slow}) should be > fast decay (${fast})`);
+  });
+
+  it("importance is always in [0, initial]", () => {
+    for (const t of [0, 1000, 5000, 30000, 60000]) {
+      for (const k of [0.0001, 0.001, 0.01, 0.1]) {
+        const imp = computeImportance(1.0, t, k);
+        assert.ok(imp >= 0 && imp <= 1.0, `importance(${t}ms, k=${k}) = ${imp}`);
+      }
+    }
+  });
+
+  it("half-life: importance ≈ 0.5 * initial at t = ln(2)/k", () => {
+    const k = 0.01;
+    const halfLifeMs = (Math.log(2) / k) * 1000; // ~69.3s
+    const imp = computeImportance(1.0, halfLifeMs, k);
+    assert.ok(Math.abs(imp - 0.5) < 0.01, `Expected ~0.5 at half-life, got ${imp}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sendWithRetry — decay-aware retry
+// ---------------------------------------------------------------------------
+
+describe("PushNotificationStore sendWithRetry", () => {
+  let store: PushNotificationStore;
+  let webhookServer: http.Server;
+  let webhookPort: number;
+  let requestCount: number;
+
+  beforeEach(async () => {
+    store = new PushNotificationStore();
+    requestCount = 0;
+
+    await new Promise<void>((resolve) => {
+      webhookServer = http.createServer((_req, res) => {
+        requestCount++;
+        // Fail first 2 requests, succeed on 3rd
+        if (requestCount <= 2) {
+          res.writeHead(503);
+          res.end("Service Unavailable");
+        } else {
+          res.writeHead(200);
+          res.end("ok");
+        }
+      });
+      webhookServer.listen(0, "127.0.0.1", () => {
+        const addr = webhookServer.address() as { port: number };
+        webhookPort = addr.port;
+        resolve();
+      });
+    });
+  });
+
+  afterEach(async () => {
+    await new Promise<void>((resolve) => {
+      webhookServer.close(() => resolve());
+    });
+  });
+
+  it("retries on failure and succeeds eventually", async () => {
+    store.register("task-retry", {
+      url: `http://127.0.0.1:${webhookPort}/hook`,
+    });
+    const decay: DecayConfig = {
+      decayRate: 0.0001, // very slow decay → importance stays high
+      minImportance: 0.1,
+      maxRetries: 5,
+      retryBaseDelayMs: 50,
+    };
+    const result = await store.sendWithRetry("task-retry", "completed", { id: "task-retry" }, decay);
+    assert.equal(result.ok, true);
+    assert.equal(requestCount, 3); // 2 failures + 1 success
+  });
+
+  it("abandons when importance decays below threshold", async () => {
+    // Register with very old createdAt so importance is already low
+    store.register("task-decayed", {
+      url: `http://127.0.0.1:${webhookPort}/hook`,
+      importance: 0.05, // below default minImportance of 0.1
+    });
+    const decay: DecayConfig = { minImportance: 0.1 };
+    const result = await store.sendWithRetry("task-decayed", "completed", { id: "task-decayed" }, decay);
+    assert.equal(result.ok, false);
+    assert.ok(result.error?.includes("decayed"));
+  });
+
+  it("without DecayConfig, send behaves as legacy (no retry)", async () => {
+    store.register("task-legacy", {
+      url: `http://127.0.0.1:${webhookPort}/hook`,
+    });
+    // Regular send (no decay) — fails on first try, no retry
+    const result = await store.send("task-legacy", "completed", { id: "task-legacy" });
+    assert.equal(result.ok, false);
+    assert.equal(requestCount, 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cleanup — remove decayed notifications
+// ---------------------------------------------------------------------------
+
+describe("PushNotificationStore cleanup", () => {
+  it("removes registrations with importance below threshold", () => {
+    const store = new PushNotificationStore();
+    store.register("task-fresh", { url: "http://a.com", importance: 1.0 });
+    store.register("task-stale", { url: "http://b.com", importance: 0.01 });
+    store.register("task-medium", { url: "http://c.com", importance: 0.5 });
+
+    const removed = store.cleanup(0.1);
+    assert.equal(removed, 1); // only task-stale
+    assert.equal(store.has("task-fresh"), true);
+    assert.equal(store.has("task-stale"), false);
+    assert.equal(store.has("task-medium"), true);
+  });
+
+  it("cleanup with no threshold uses default 0.1", () => {
+    const store = new PushNotificationStore();
+    store.register("task-tiny", { url: "http://a.com", importance: 0.05 });
+    store.register("task-ok", { url: "http://b.com", importance: 0.2 });
+
+    const removed = store.cleanup();
+    assert.equal(removed, 1);
+    assert.equal(store.has("task-ok"), true);
   });
 });
