@@ -142,6 +142,32 @@ export interface RetryConfig {
 export interface CircuitBreakerConfig {
   failureThreshold: number;
   resetTimeoutMs: number;
+  /**
+   * Soft failure threshold (< failureThreshold) to enter DESENSITIZED state.
+   * When set, the circuit goes CLOSED → DESENSITIZED → OPEN instead of
+   * directly CLOSED → OPEN. Analogous to receptor phosphorylation reducing
+   * but not blocking signal transduction.
+   *
+   * @see Bhalla, U.S. & Bhatt, D.K. (2007) "Receptor desensitization
+   *   produces complex dose-response" BMC Syst Biol 1:54.
+   */
+  softThreshold?: number;
+  /**
+   * Fraction of traffic allowed in DESENSITIZED state (0-1).
+   * Uses deterministic round-robin (not random) for testability.
+   * @default 0.5
+   */
+  desensitizedCapacity?: number;
+  /**
+   * Recovery rate constant (k) for exponential recovery curve:
+   *   capacity(t) = 1 - exp(-k * t_seconds)
+   *
+   * When set, RECOVERING uses gradual capacity increase instead of
+   * single-probe half-open behavior. Higher k = faster recovery.
+   * Analogous to receptor recycling rate after internalization.
+   * @default undefined (single-probe mode, equivalent to legacy half-open)
+   */
+  recoveryRateConstant?: number;
 }
 
 export interface PeerResilienceConfig {
@@ -150,7 +176,7 @@ export interface PeerResilienceConfig {
   circuitBreaker: CircuitBreakerConfig;
 }
 
-export type CircuitState = "closed" | "open" | "half-open";
+export type CircuitState = "closed" | "desensitized" | "open" | "recovering";
 export type HealthStatus = "healthy" | "unhealthy" | "unknown";
 
 export interface PeerState {
@@ -159,6 +185,8 @@ export interface PeerState {
   consecutiveFailures: number;
   lastFailureAt: number | null;
   lastCheckAt: number | null;
+  /** Timestamp (ms) when RECOVERING state began. */
+  recoveringSince?: number | null;
 }
 
 // ---------------------------------------------------------------------------
