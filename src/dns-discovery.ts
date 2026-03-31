@@ -188,6 +188,25 @@ export class DnsDiscoveryManager {
   }
 
   /**
+   * Trigger a single discovery cycle and wait for it to complete.
+   *
+   * Exposed for external orchestration (e.g. {@link QuorumDiscoveryManager}).
+   * Safe to call while the internal timer is running — the timer and manual
+   * triggers share the same `discoveredPeers` cache.
+   */
+  async triggerRefresh(): Promise<void> {
+    try {
+      await this.discover();
+    } catch (err) {
+      this.evictExpired();
+      this.log("warn", "dns-discovery.refresh-failed", {
+        error: err instanceof Error ? err.message : String(err),
+        retainedPeers: this.discoveredPeers.length,
+      });
+    }
+  }
+
+  /**
    * Run a single discovery cycle.
    *
    * Queries SRV records for the configured service name, then resolves TXT
