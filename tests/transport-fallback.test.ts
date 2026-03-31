@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   orderTransports,
   isRetryableTransportError,
+  adaptiveOrderTransports,
+  TransportStats,
   type TransportEndpoint,
 } from "../src/transport-fallback.js";
 
@@ -314,5 +316,147 @@ describe("transport fallback scenario", () => {
     assert.equal(allFailed, true, "all transports should have failed");
     assert.ok(lastError);
     assert.ok(lastError.message.includes("UNAVAILABLE"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TransportStats
+// ---------------------------------------------------------------------------
+
+describe("TransportStats", () => {
+  it("returns optimistic defaults for unknown transports", () => {
+    const stats = new TransportStats();
+    assert.equal(stats.successRate("JSONRPC"), 1);
+    assert.equal(stats.avgLatency("JSONRPC"), 0);
+    assert.equal(stats.getScore("JSONRPC"), 1);
+    assert.equal(stats.count("JSONRPC"), 0);
+  });
+
+  it("tracks success rate across recorded outcomes", () => {
+    const stats = new TransportStats();
+    stats.record("JSONRPC", true, 50);
+    stats.record("JSONRPC", true, 60);
+    stats.record("JSONRPC", false, 100);
+    stats.record("JSONRPC", true, 40);
+
+    assert.equal(stats.successRate("JSONRPC"), 0.75); // 3/4
+    assert.equal(stats.count("JSONRPC"), 4);
+  });
+
+  it("computes average latency from successful calls only", () => {
+    const stats = new TransportStats();
+    stats.record("REST", true, 100);
+    stats.record("REST", false, 5000); // failure — excluded from avg
+    stats.record("REST", true, 200);
+
+    assert.equal(stats.avgLatency("REST"), 150); // (100+200)/2
+  });
+
+  it("respects sliding window size", () => {
+    const stats = new TransportStats(3); // window = 3
+    stats.record("GRPC", false, 100); // will be pushed out
+    stats.record("GRPC", true, 50);
+    stats.record("GRPC", true, 60);
+    stats.record("GRPC", true, 70); // pushes out the first failure
+
+    assert.equal(stats.count("GRPC"), 3);
+    assert.equal(stats.successRate("GRPC"), 1); // all 3 in window are successes
+  });
+
+  it("score penalizes high latency", () => {
+    const stats = new TransportStats(20, 1000); // normalizer = 1000ms
+
+    // Fast transport: 50ms avg → latencyFactor ≈ 0.952
+    stats.record("FAST", true, 50);
+    // Slow transport: 5000ms avg → latencyFactor ≈ 0.167
+    stats.record("SLOW", true, 5000);
+
+    assert.ok(stats.getScore("FAST") > stats.getScore("SLOW"));
+    // Both have 100% success rate, so difference is purely from latency
+    assert.equal(stats.successRate("FAST"), 1);
+    assert.equal(stats.successRate("SLOW"), 1);
+  });
+
+  it("score penalizes low success rate", () => {
+    const stats = new TransportStats();
+    // Reliable transport: 100% success
+    stats.record("RELIABLE", true, 100);
+    stats.record("RELIABLE", true, 100);
+    // Flaky transport: 50% success
+    stats.record("FLAKY", true, 100);
+    stats.record("FLAKY", false, 100);
+
+    assert.ok(stats.getScore("RELIABLE") > stats.getScore("FLAKY"));
+  });
+
+  it("clear removes all records", () => {
+    const stats = new TransportStats();
+    stats.record("JSONRPC", true, 50);
+    stats.record("GRPC", false, 100);
+    stats.clear();
+
+    assert.equal(stats.count("JSONRPC"), 0);
+    assert.equal(stats.count("GRPC"), 0);
+    assert.equal(stats.successRate("JSONRPC"), 1); // back to default
+  });
+});
+
+// ---------------------------------------------------------------------------
+// adaptiveOrderTransports
+// ---------------------------------------------------------------------------
+
+describe("adaptiveOrderTransports", () => {
+  it("orders by score when stats differ", () => {
+    const stats = new TransportStats();
+    // GRPC has best stats
+    stats.record("GRPC", true, 10);
+    stats.record("GRPC", true, 15);
+    // JSONRPC has worst stats
+    stats.record("JSONRPC", false, 500);
+    stats.record("JSONRPC", false, 600);
+    // HTTP+JSON has medium stats
+    stats.record("HTTP+JSON", true, 200);
+
+    const input: TransportEndpoint[] = [
+      { url: "http://x/jsonrpc", transport: "JSONRPC" },
+      { url: "http://x/rest", transport: "HTTP+JSON" },
+      { url: "http://x:50051", transport: "GRPC" },
+    ];
+
+    const result = adaptiveOrderTransports(input, stats);
+    // GRPC first (highest score), HTTP+JSON second, JSONRPC last (0% success)
+    assert.equal(result[0].transport, "GRPC");
+    assert.equal(result[1].transport, "HTTP+JSON");
+    assert.equal(result[2].transport, "JSONRPC");
+  });
+
+  it("falls back to static priority when scores are equal", () => {
+    const stats = new TransportStats(); // No records → all score 1.0
+
+    const input: TransportEndpoint[] = [
+      { url: "http://x:50051", transport: "GRPC" },
+      { url: "http://x/rest", transport: "HTTP+JSON" },
+      { url: "http://x/jsonrpc", transport: "JSONRPC" },
+    ];
+
+    const result = adaptiveOrderTransports(input, stats);
+    // Same order as static priority
+    assert.equal(result[0].transport, "JSONRPC");
+    assert.equal(result[1].transport, "HTTP+JSON");
+    assert.equal(result[2].transport, "GRPC");
+  });
+
+  it("does not mutate the input array", () => {
+    const stats = new TransportStats();
+    stats.record("GRPC", true, 10);
+
+    const input: TransportEndpoint[] = [
+      { url: "http://x/jsonrpc", transport: "JSONRPC" },
+      { url: "http://x:50051", transport: "GRPC" },
+    ];
+
+    const inputCopy = [...input];
+    adaptiveOrderTransports(input, stats);
+    assert.deepEqual(input, inputCopy); // original unchanged
   });
 });
