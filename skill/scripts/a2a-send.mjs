@@ -364,7 +364,11 @@ async function main() {
     }
 
     if (Date.now() - startedAt > timeoutMs) {
-      console.error(`Timeout waiting for task ${responseTaskId} after ${timeoutMs}ms`);
+      const elapsed = (timeoutMs / 1000).toFixed(0);
+      const lastState = task?.status?.state || "unknown";
+      console.error(`\nTimeout: task ${responseTaskId} still "${lastState}" after ${elapsed}s`);
+      console.error(`Tip: increase --timeout-ms or check status later with:`);
+      console.error(`  node a2a-status.mjs --task-id ${responseTaskId} --wait`);
       console.log(JSON.stringify(task, null, 2));
       process.exit(3);
     }
@@ -374,6 +378,35 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("Error:", err?.stack || err?.message || String(err));
+  const msg = err?.message || String(err);
+  const code = err?.cause?.code || err?.code || "";
+
+  if (code === "ECONNREFUSED" || msg.includes("ECONNREFUSED")) {
+    console.error(`Connection refused — peer is not reachable.`);
+    console.error(`  1. Check if the peer is running: curl -s <peer-url>/.well-known/agent-card.json`);
+    console.error(`  2. Verify the URL: --peer-url or A2A_PEER_URL`);
+    console.error(`  3. Check network/firewall (Tailscale connected?)`);
+    process.exit(1);
+  }
+
+  if (code === "ETIMEDOUT" || code === "UND_ERR_CONNECT_TIMEOUT" || msg.includes("ETIMEDOUT")) {
+    console.error(`Connection timed out — peer is not responding.`);
+    console.error(`  Network path may be blocked or peer is overloaded.`);
+    process.exit(1);
+  }
+
+  if (code === "ENOTFOUND" || msg.includes("ENOTFOUND")) {
+    console.error(`DNS lookup failed — hostname not found.`);
+    console.error(`  Check the peer URL for typos: ${process.env.A2A_PEER_URL || "(not set)"}`);
+    process.exit(1);
+  }
+
+  if (msg.includes("401") || msg.includes("Unauthorized")) {
+    console.error(`Authentication failed (401) — token is invalid or expired.`);
+    console.error(`  Update --token or A2A_TOKEN env var.`);
+    process.exit(1);
+  }
+
+  console.error("Error:", err?.stack || msg);
   process.exit(1);
 });
