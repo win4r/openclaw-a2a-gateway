@@ -11,8 +11,8 @@
  *   node a2a-send.mjs --peer-url <URL> --token <TOKEN> --non-blocking --wait --message "..."
  *
  * Options:
- *   --peer-url <url>        Peer base URL, e.g. http://100.76.43.74:18800
- *   --token <token>         Bearer token for the peer inbound auth
+ *   --peer-url <url>        Peer base URL, e.g. http://100.76.43.74:18800 (env: A2A_PEER_URL)
+ *   --token <token>         Bearer token for the peer inbound auth (env: A2A_TOKEN)
  *   --message <text>        Text to send
  *   --task-id <id>          Reuse an existing A2A task for follow-up turns
  *   --context-id <id>       Reuse an existing A2A context for multi-round conversation routing
@@ -106,7 +106,7 @@ function parseArgs() {
     usageAndExit(0);
   }
 
-  const peerUrl = String(opts["peer-url"] || opts.peerUrl || "").trim();
+  const peerUrl = String(opts["peer-url"] || opts.peerUrl || process.env.A2A_PEER_URL || "").trim();
   const message = String(opts.message || "").trim();
   const fileUri = String(opts["file-uri"] || opts.fileUri || "").trim();
   const filePath = String(opts["file-path"] || opts.filePath || "").trim();
@@ -137,7 +137,7 @@ async function main() {
   const opts = parseArgs();
 
   const peerUrl = opts.peerUrl;
-  const token = typeof opts.token === "string" ? opts.token : "";
+  const token = typeof opts.token === "string" ? opts.token : (process.env.A2A_TOKEN || "");
   const message = opts.message;
   const targetAgentId = (opts["agent-id"] || opts.agentId || "").toString().trim();
   const continuationTaskId = (opts["task-id"] || opts.taskId || "").toString().trim().slice(0, 256);
