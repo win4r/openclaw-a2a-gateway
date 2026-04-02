@@ -3,11 +3,12 @@
  * Query the status of an A2A task by its task ID.
  *
  * Usage:
- *   node a2a-status.mjs --task-id <TASK_ID>
+ *   node a2a-status.mjs --peer AntiBot --task-id <TASK_ID>
  *   node a2a-status.mjs --task-id <TASK_ID> --wait
  *   node a2a-status.mjs --peer-url <URL> --token <TOKEN> --task-id <TASK_ID> --wait --timeout-ms 30000
  *
  * Options:
+ *   --peer <name>           Peer alias from ~/.openclaw/a2a-peers.json
  *   --peer-url <url>        Peer base URL (env: A2A_PEER_URL)
  *   --token <token>         Bearer token (env: A2A_TOKEN)
  *   --task-id <id>          Task ID to query (required)
@@ -29,8 +30,9 @@ import {
   createAuthenticatingFetchWithRetry,
 } from "@a2a-js/sdk/client";
 import { GrpcTransportFactory } from "@a2a-js/sdk/client/grpc";
+import { resolveConnection } from "./a2a-peers.mjs";
 
-const USAGE = `Usage: node a2a-status.mjs --task-id <TASK_ID> [--peer-url <URL>] [--token <TOKEN>] [--wait] [--timeout-ms <ms>] [--poll-ms <ms>] [--json] [--help]`;
+const USAGE = `Usage: node a2a-status.mjs --task-id <TASK_ID> [--peer <name> | --peer-url <URL>] [--token <TOKEN>] [--wait] [--timeout-ms <ms>] [--poll-ms <ms>] [--json] [--help]`;
 
 function usageAndExit(code = 1) {
   const stream = code === 0 ? console.log : console.error;
@@ -94,8 +96,7 @@ function formatTask(task) {
 async function main() {
   const opts = parseArgs();
 
-  const peerUrl = String(opts["peer-url"] || opts.peerUrl || process.env.A2A_PEER_URL || "").trim();
-  const token = typeof opts.token === "string" ? opts.token : (process.env.A2A_TOKEN || "");
+  const { url: peerUrl, token } = resolveConnection(opts);
   const taskId = String(opts["task-id"] || opts.taskId || "").trim();
   const wait = Boolean(opts.wait);
   const json = Boolean(opts.json);

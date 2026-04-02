@@ -3,14 +3,15 @@
  * Send a message to an A2A peer using the official @a2a-js/sdk.
  *
  * Usage:
- *   node a2a-send.mjs --peer-url <PEER_BASE_URL> --token <TOKEN> --message "Hello!"
+ *   node a2a-send.mjs --peer AntiBot --message "Hello!"
  *   node a2a-send.mjs --peer-url http://100.76.43.74:18800 --token abc123 --message "What is your name?"
- *   node a2a-send.mjs --peer-url <URL> --token <TOKEN> --message "Follow up" --task-id <TASK_ID> --context-id <CONTEXT_ID>
+ *   node a2a-send.mjs --peer AntiBot --message "Follow up" --task-id <TASK_ID> --context-id <CONTEXT_ID>
  *
  * Async task mode (recommended for long-running prompts):
- *   node a2a-send.mjs --peer-url <URL> --token <TOKEN> --non-blocking --wait --message "..."
+ *   node a2a-send.mjs --peer AntiBot --non-blocking --wait --message "..."
  *
  * Options:
+ *   --peer <name>           Peer alias from ~/.openclaw/a2a-peers.json
  *   --peer-url <url>        Peer base URL, e.g. http://100.76.43.74:18800 (env: A2A_PEER_URL)
  *   --token <token>         Bearer token for the peer inbound auth (env: A2A_TOKEN)
  *   --message <text>        Text to send
@@ -42,8 +43,9 @@ import { GrpcTransportFactory } from "@a2a-js/sdk/client/grpc";
 import { randomUUID } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { extname } from "node:path";
+import { resolveConnection } from "./a2a-peers.mjs";
 
-const USAGE = `Usage: node a2a-send.mjs --peer-url <URL> --token <TOKEN> --message <TEXT> [--file-uri <url>] [--file-path <localpath>] [--task-id <id>] [--context-id <id>] [--non-blocking] [--wait] [--stream] [--timeout-ms <ms>] [--poll-ms <ms>] [--agent-id <openclaw-agent-id>] [--help]`;
+const USAGE = `Usage: node a2a-send.mjs [--peer <name> | --peer-url <URL>] --message <TEXT> [--file-uri <url>] [--file-path <localpath>] [--task-id <id>] [--context-id <id>] [--non-blocking] [--wait] [--stream] [--timeout-ms <ms>] [--poll-ms <ms>] [--agent-id <openclaw-agent-id>] [--help]`;
 
 const MAX_INLINE_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
@@ -158,8 +160,7 @@ function extractFirstTextParts(parts) {
 async function main() {
   const opts = parseArgs();
 
-  const peerUrl = opts.peerUrl;
-  const token = typeof opts.token === "string" ? opts.token : (process.env.A2A_TOKEN || "");
+  const { url: peerUrl, token } = resolveConnection(opts);
   const message = opts.message;
   const targetAgentId = (opts["agent-id"] || opts.agentId || "").toString().trim();
   const continuationTaskId = (opts["task-id"] || opts.taskId || "").toString().trim().slice(0, 256);

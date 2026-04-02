@@ -16,33 +16,7 @@
  *   --help                  Show this help text
  */
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { homedir } from "node:os";
-
-const PEERS_FILE = join(homedir(), ".openclaw", "a2a-peers.json");
-
-function loadPeers() {
-  try {
-    return JSON.parse(readFileSync(PEERS_FILE, "utf-8"));
-  } catch {
-    return {};
-  }
-}
-
-function resolvePeer(name) {
-  const peers = loadPeers();
-  const entry = peers[name];
-  if (!entry) {
-    console.error(`Unknown peer "${name}". Available: ${Object.keys(peers).join(", ") || "(none)"}`);
-    console.error(`Configure peers in ${PEERS_FILE}`);
-    process.exit(1);
-  }
-  return {
-    url: typeof entry === "string" ? entry : entry.url,
-    token: typeof entry === "object" ? entry.token : undefined,
-  };
-}
+import { loadPeers, resolvePeer, resolveConnection, PEERS_FILE } from "./a2a-peers.mjs";
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -152,24 +126,16 @@ async function main() {
   }
 
   // Single peer mode
-  let url, token;
-
-  if (opts.peer) {
-    const resolved = resolvePeer(opts.peer);
-    url = resolved.url;
-    token = resolved.token || opts.token || process.env.A2A_TOKEN || "";
-  } else {
-    url = String(opts["peer-url"] || opts.peerUrl || process.env.A2A_PEER_URL || "").trim();
-    token = typeof opts.token === "string" ? opts.token : (process.env.A2A_TOKEN || "");
-  }
+  const { url, token } = resolveConnection(opts);
 
   if (!url) {
     console.error("Error: --peer-url, --peer <name>, or A2A_PEER_URL required");
     process.exit(1);
   }
 
+  const label = opts.peer || url;
   const result = await pingPeer(url, token, timeoutMs);
-  console.log(formatResult(url, result));
+  console.log(formatResult(label, result));
   process.exit(result.online ? 0 : 1);
 }
 
