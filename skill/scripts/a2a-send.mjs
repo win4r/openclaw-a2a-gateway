@@ -123,6 +123,28 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const RETRYABLE_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "UND_ERR_CONNECT_TIMEOUT", "EPIPE"]);
+
+function isRetryableError(err) {
+  const code = err?.cause?.code || err?.code || "";
+  if (RETRYABLE_CODES.has(code)) return true;
+  const msg = err?.message || "";
+  return RETRYABLE_CODES.has(msg) || msg.includes("fetch failed") || msg.includes("ECONNREFUSED");
+}
+
+async function retryOnConnectionError(fn, { maxRetries = 3, baseDelayMs = 2000 } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt >= maxRetries || !isRetryableError(err)) throw err;
+      const delay = baseDelayMs * Math.pow(2, attempt);
+      console.error(`Connection failed (${err?.cause?.code || err?.message}), retrying in ${(delay / 1000).toFixed(0)}s... (${attempt + 1}/${maxRetries})`);
+      await sleep(delay);
+    }
+  }
+}
+
 function extractFirstTextParts(parts) {
   if (!Array.isArray(parts)) return undefined;
   for (const p of parts) {
@@ -195,8 +217,8 @@ async function main() {
     })
   );
 
-  // Discover agent card and create client
-  const client = await factory.createFromUrl(peerUrl);
+  // Discover agent card and create client (with retry for transient network errors)
+  const client = await retryOnConnectionError(() => factory.createFromUrl(peerUrl));
 
   // Build message parts: text + optional file
   const outboundParts = [];
@@ -284,7 +306,7 @@ async function main() {
     return;
   }
 
-  const result = await client.sendMessage(sendParams, requestOptions);
+  const result = await retryOnConnectionError(() => client.sendMessage(sendParams, requestOptions));
 
   const printTaskHandle = (task) => {
     if (!task || typeof task !== "object") return;
