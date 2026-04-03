@@ -975,6 +975,7 @@ const plugin = {
         // Stop peer health checks
         healthManager?.stop();
         auditLogger.close();
+        client.destroy();
 
         // Stop task cleanup timer
         if (cleanupTimer) {

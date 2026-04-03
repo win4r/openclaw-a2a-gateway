@@ -12,6 +12,7 @@ import {
 import { GrpcTransportFactory } from "@a2a-js/sdk/client/grpc";
 import type { MessageSendParams, Message } from "@a2a-js/sdk";
 
+import { ConnectionPool, type ConnectionPoolConfig } from "./connection-pool.js";
 import type { OutboundSendResult, PeerConfig, RetryConfig } from "./types.js";
 import type { PeerHealthManager } from "./peer-health.js";
 import { withRetry } from "./peer-retry.js";
@@ -22,6 +23,8 @@ import {
   TransportStats,
   type TransportEndpoint,
 } from "./transport-fallback.js";
+
+const nativeFetch = globalThis.fetch;
 
 /**
  * Build an AuthenticationHandler for bearer or apiKey auth.
@@ -53,12 +56,20 @@ function parseAgentCardUrl(agentCardUrl: string): { baseUrl: string; path: strin
 }
 
 export class A2AClient {
+  private readonly poolConfig?: ConnectionPoolConfig;
+  private connectionPool: ConnectionPool | null = null;
+  private destroyed = false;
+
   /**
    * Per-peer transport performance stats for adaptive ordering.
    * Bio-inspired: cells learn which signal pathway works best for a given
    * stimulus type and preferentially activate it (pathway selection).
    */
   private readonly peerTransportStats = new Map<string, TransportStats>();
+
+  constructor(config?: { poolConfig?: ConnectionPoolConfig }) {
+    this.poolConfig = config?.poolConfig;
+  }
 
   private getOrCreateStats(peerName: string): TransportStats {
     let stats = this.peerTransportStats.get(peerName);
@@ -69,17 +80,44 @@ export class A2AClient {
     return stats;
   }
 
+  private getOrCreatePool(): ConnectionPool {
+    if (this.destroyed) {
+      throw new Error("A2AClient has been destroyed");
+    }
+
+    if (!this.connectionPool) {
+      this.connectionPool = new ConnectionPool(this.poolConfig);
+    }
+
+    return this.connectionPool;
+  }
+
+  private createBaseFetch(): typeof fetch {
+    // Preserve testability: if a test or embedding runtime overrides fetch,
+    // honor that override instead of bypassing it with the pooled transport.
+    if (globalThis.fetch !== nativeFetch) {
+      return globalThis.fetch.bind(globalThis) as typeof fetch;
+    }
+
+    return ((input: RequestInfo | URL, init?: RequestInit) =>
+      this.getOrCreatePool().fetch(input, init)) as typeof fetch;
+  }
+
+  private createFetch(peer: PeerConfig): typeof fetch {
+    const baseFetch = this.createBaseFetch();
+    const authHandler = createAuthHandler(peer);
+
+    return authHandler
+      ? createAuthenticatingFetchWithRetry(baseFetch, authHandler)
+      : baseFetch;
+  }
+
   /**
    * Create a ClientFactory with auth-aware fetch for a given peer.
    */
   private buildFactory(peer: PeerConfig): { factory: ClientFactory; path: string } {
     const { baseUrl: _baseUrl, path } = parseAgentCardUrl(peer.agentCardUrl);
-    const authHandler = createAuthHandler(peer);
-
-    // Wrap global fetch with auth headers if configured
-    const authFetch = authHandler
-      ? createAuthenticatingFetchWithRetry(fetch, authHandler)
-      : fetch;
+    const authFetch = this.createFetch(peer);
 
     // Inject auth fetch into card resolver and all transports
     const options = ClientFactoryOptions.createFrom(ClientFactoryOptions.default, {
@@ -103,18 +141,12 @@ export class A2AClient {
   async discoverAgentCard(peer: PeerConfig, timeoutMs = 30_000): Promise<Record<string, unknown>> {
     const { baseUrl, path } = parseAgentCardUrl(peer.agentCardUrl);
     const { factory } = this.buildFactory(peer);
+    const authFetch = this.createFetch(peer);
 
     // createFromUrl resolves the card internally
     await factory.createFromUrl(baseUrl, path);
 
-    // Re-fetch the card for the return value (lightweight)
-    const authHandler = createAuthHandler(peer);
-    const headers: Record<string, string> = authHandler
-      ? (await authHandler.headers()) as Record<string, string>
-      : {};
-
-    const response = await fetch(`${baseUrl}${path}`, {
-      headers,
+    const response = await authFetch(`${baseUrl}${path}`, {
       signal: AbortSignal.timeout(timeoutMs),
     });
 
@@ -234,9 +266,7 @@ export class A2AClient {
     try {
       // Use SDK's card resolver (which already handles auth)
       const resolver = new DefaultAgentCardResolver({
-        fetchImpl: peer.auth?.token
-          ? createAuthenticatingFetchWithRetry(fetch, createAuthHandler(peer)!)
-          : fetch,
+        fetchImpl: this.createFetch(peer),
       });
       const agentCard = await resolver.resolve(baseUrl, path);
 
@@ -396,10 +426,7 @@ export class A2AClient {
     sendParams: MessageSendParams,
     requestOptions: { serviceParameters?: Record<string, string> },
   ): Promise<OutboundSendResult> {
-    const authHandler = createAuthHandler(peer);
-    const authFetch = authHandler
-      ? createAuthenticatingFetchWithRetry(fetch, authHandler)
-      : fetch;
+    const authFetch = this.createFetch(peer);
 
     let transport;
 
@@ -438,5 +465,11 @@ export class A2AClient {
       // Re-throw so the fallback loop can classify the error
       throw error;
     }
+  }
+
+  destroy(): void {
+    this.destroyed = true;
+    this.connectionPool?.destroy();
+    this.connectionPool = null;
   }
 }
