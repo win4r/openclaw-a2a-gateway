@@ -20,10 +20,18 @@ import { homedir } from "node:os";
 const PEERS_FILE = join(homedir(), ".openclaw", "a2a-peers.json");
 
 export function loadPeers() {
+  let raw;
   try {
-    return JSON.parse(readFileSync(PEERS_FILE, "utf-8"));
+    raw = readFileSync(PEERS_FILE, "utf-8");
   } catch {
-    return {};
+    return {};  // File doesn't exist — that's fine
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    console.error(`Error parsing ${PEERS_FILE}: ${err.message}`);
+    console.error(`Fix the JSON syntax and retry.`);
+    process.exit(1);
   }
 }
 

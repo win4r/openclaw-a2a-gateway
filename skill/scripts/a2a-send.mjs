@@ -113,8 +113,8 @@ function parseArgs() {
   const fileUri = String(opts["file-uri"] || opts.fileUri || "").trim();
   const filePath = String(opts["file-path"] || opts.filePath || "").trim();
 
-  // At least one of --message, --file-uri, --file-path required
-  if (!peerUrl || (!message && !fileUri && !filePath)) {
+  // Need a peer target (--peer-url, --peer alias, or A2A_PEER_URL) and at least one payload
+  if ((!peerUrl && !opts.peer) || (!message && !fileUri && !filePath)) {
     usageAndExit(1);
   }
 
@@ -282,6 +282,8 @@ async function main() {
   // SSE streaming mode: subscribe to task event stream
   if (stream) {
     console.log("[stream] connecting...");
+    // Note: stream mode does not auto-retry — connection errors surface immediately.
+    // Retrying a partially-consumed stream has different semantics than retrying a single RPC.
     const eventStream = client.sendMessageStream(sendParams, requestOptions);
     for await (const event of eventStream) {
       const kind = event?.kind;
@@ -352,7 +354,7 @@ async function main() {
   }
 
   const startedAt = Date.now();
-  const terminalStates = new Set(["completed", "failed", "canceled"]);
+  const terminalStates = new Set(["completed", "failed", "canceled", "rejected"]);
 
   while (true) {
     const task = await client.getTask({ id: responseTaskId, historyLength: 20 }, requestOptions);
@@ -398,7 +400,7 @@ main().catch((err) => {
 
   if (code === "ENOTFOUND" || msg.includes("ENOTFOUND")) {
     console.error(`DNS lookup failed — hostname not found.`);
-    console.error(`  Check the peer URL for typos: ${process.env.A2A_PEER_URL || "(not set)"}`);
+    console.error(`  Check the peer URL for typos (--peer-url or A2A_PEER_URL).`);
     process.exit(1);
   }
 
