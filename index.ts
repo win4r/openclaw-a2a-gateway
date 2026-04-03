@@ -31,6 +31,7 @@ import {
 import { OpenClawAgentExecutor } from "./src/executor.js";
 import { QueueingAgentExecutor } from "./src/queueing-executor.js";
 import { runTaskCleanup } from "./src/task-cleanup.js";
+import { recoverStaleTasks } from "./src/task-recovery.js";
 import { FileTaskStore } from "./src/task-store.js";
 import { GatewayTelemetry } from "./src/telemetry.js";
 import { AuditLogger } from "./src/audit.js";
@@ -941,6 +942,9 @@ const plugin = {
           api.logger.warn(`a2a-gateway: gRPC init failed: ${msg}`);
           grpcServer = null;
         }
+
+        // Recover tasks stuck in non-terminal states from a previous run
+        await recoverStaleTasks(taskStore, api.logger);
 
         // Start task TTL cleanup
         const ttlMs = config.storage.taskTtlHours * 3_600_000;
