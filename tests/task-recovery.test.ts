@@ -69,6 +69,26 @@ describe("recoverStaleTasks", () => {
     }
   });
 
+  it("recovers all non-terminal states (input-required, auth-required, unknown)", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "a2a-recovery-"));
+    try {
+      const store = new FileTaskStore(dir);
+      await store.save(makeTask("t-input", "input-required", hoursAgo(1)));
+      await store.save(makeTask("t-auth", "auth-required", hoursAgo(1)));
+      await store.save(makeTask("t-unknown", "unknown", hoursAgo(1)));
+
+      const result = await recoverStaleTasks(store, silentLogger());
+      assert.equal(result.recovered, 3);
+      assert.equal(result.skipped, 0);
+
+      assert.equal((await store.load("t-input"))!.status.state, "failed");
+      assert.equal((await store.load("t-auth"))!.status.state, "failed");
+      assert.equal((await store.load("t-unknown"))!.status.state, "failed");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("skips tasks already in terminal states", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "a2a-recovery-"));
     try {
@@ -76,15 +96,16 @@ describe("recoverStaleTasks", () => {
       await store.save(makeTask("t-completed", "completed", hoursAgo(1)));
       await store.save(makeTask("t-failed", "failed", hoursAgo(1)));
       await store.save(makeTask("t-canceled", "canceled", hoursAgo(1)));
+      await store.save(makeTask("t-rejected", "rejected", hoursAgo(1)));
 
       const result = await recoverStaleTasks(store, silentLogger());
       assert.equal(result.recovered, 0);
-      assert.equal(result.skipped, 3);
+      assert.equal(result.skipped, 4);
 
-      // Verify they remain unchanged
       assert.equal((await store.load("t-completed"))!.status.state, "completed");
       assert.equal((await store.load("t-failed"))!.status.state, "failed");
       assert.equal((await store.load("t-canceled"))!.status.state, "canceled");
+      assert.equal((await store.load("t-rejected"))!.status.state, "rejected");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -112,7 +133,7 @@ describe("recoverStaleTasks", () => {
     }
   });
 
-  it("includes previous state in the failure message", async () => {
+  it("writes a complete Message2 with kind and messageId", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "a2a-recovery-"));
     try {
       const store = new FileTaskStore(dir);
@@ -124,6 +145,8 @@ describe("recoverStaleTasks", () => {
       assert.ok(task);
       const message = task.status.message;
       assert.ok(message);
+      assert.equal(message.kind, "message");
+      assert.ok(message.messageId, "messageId must be present");
       assert.equal(message.role, "agent");
       assert.ok(message.parts.length > 0);
       const text = (message.parts[0] as any).text;
