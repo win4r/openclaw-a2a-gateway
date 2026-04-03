@@ -139,6 +139,7 @@ async function main() {
   const client = await factory.createFromUrl(peerUrl);
   const requestOptions = token ? { serviceParameters: { authorization: `Bearer ${token}` } } : undefined;
   const terminalStates = new Set(["completed", "failed", "canceled", "rejected"]);
+  const blockedStates = new Set(["input-required", "auth-required"]);
 
   // Single query mode
   if (!wait) {
@@ -170,6 +171,11 @@ async function main() {
     }
 
     if (state && terminalStates.has(state)) return;
+
+    if (state && blockedStates.has(state)) {
+      console.error(`\nTask is blocked (${state}). It needs external action to proceed.`);
+      process.exit(2);
+    }
 
     if (Date.now() - startedAt > timeoutMs) {
       console.error(`\nTimeout: task ${taskId} still in "${state}" state after ${(timeoutMs / 1000).toFixed(0)}s`);

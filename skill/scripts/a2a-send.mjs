@@ -355,6 +355,7 @@ async function main() {
 
   const startedAt = Date.now();
   const terminalStates = new Set(["completed", "failed", "canceled", "rejected"]);
+  const blockedStates = new Set(["input-required", "auth-required"]);
 
   while (true) {
     const task = await client.getTask({ id: responseTaskId, historyLength: 20 }, requestOptions);
@@ -364,6 +365,13 @@ async function main() {
       const text = extractFirstTextParts(task.status?.message?.parts);
       console.log(text || JSON.stringify(task, null, 2));
       return;
+    }
+
+    if (state && blockedStates.has(state)) {
+      console.error(`\nTask is blocked (${state}). It needs external action to proceed.`);
+      console.error(`Check status later: node a2a-status.mjs --task-id ${responseTaskId}`);
+      console.log(JSON.stringify(task, null, 2));
+      process.exit(2);
     }
 
     if (Date.now() - startedAt > timeoutMs) {
