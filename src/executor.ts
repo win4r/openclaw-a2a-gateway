@@ -499,7 +499,7 @@ function getOrCreateDeviceIdentity(): { publicKey: string; privateKey: crypto.Ke
   return cachedDeviceIdentity;
 }
 
-class GatewayRpcConnection {
+export class GatewayRpcConnection {
   private readonly wsUrl: string;
   private readonly gatewayToken: string;
   private readonly gatewayPassword: string;
@@ -963,6 +963,288 @@ class GatewayRpcConnection {
   }
 }
 
+// ---------------------------------------------------------------------------
+// WebSocket connection pool — reuses GatewayRpcConnection across dispatches
+// ---------------------------------------------------------------------------
+
+export interface WsPoolConfig {
+  /** Maximum idle time (ms) before a pooled connection is evicted. Default: 300_000 (5 min) */
+  idleTimeoutMs?: number;
+  /** Interval (ms) between heartbeat pings on an idle connection. Default: 60_000 (1 min) */
+  heartbeatIntervalMs?: number;
+  /** Maximum number of reconnection attempts before giving up on a connection. Default: 2 */
+  maxReconnectAttempts?: number;
+}
+
+export interface WsPoolStats {
+  connections: number;
+  idleConnections: number;
+  activeConnections: number;
+  hitRate: number;
+  totalAcquires: number;
+  totalReuses: number;
+  totalReconnects: number;
+}
+
+interface PooledConnection {
+  conn: GatewayRpcConnection;
+  key: string;
+  lastUsedAt: number;
+  isActive: boolean;
+  heartbeatTimer: ReturnType<typeof setTimeout> | null;
+  evictionTimer: ReturnType<typeof setTimeout> | null;
+  reconnectCount: number;
+}
+
+/**
+ * Pool that shares GatewayRpcConnection instances keyed by (wsUrl + token + password).
+ *
+ * Without pooling, every `dispatchViaGatewayRpc()` call creates a fresh WebSocket
+ * connection: TCP handshake + WS upgrade + Ed25519 challenge + `connect` RPC ≈ 100–200 ms
+ * of pure overhead on localhost, much more over the network.  By reusing a persistent
+ * connection, subsequent dispatches skip all of that and send the `agent` RPC frame
+ * directly on the existing socket.
+ *
+ * The pool also provides:
+ * - **Heartbeat** — periodic `echo` RPC to keep the connection alive during idle periods.
+ * - **Auto-reconnect** — transparently recreates a dropped connection before the next dispatch.
+ * - **Idle eviction** — gracefully closes connections that have been idle longer than
+ *   `idleTimeoutMs`, freeing resources on both the client and the gateway.
+ */
+export class GatewayRpcConnectionPool {
+  private readonly pool = new Map<string, PooledConnection>();
+  private readonly idleTimeoutMs: number;
+  private readonly heartbeatIntervalMs: number;
+  private readonly maxReconnectAttempts: number;
+  private destroyed = false;
+
+  private totalAcquires = 0;
+  private totalReuses = 0;
+  private totalReconnects = 0;
+
+  constructor(config: WsPoolConfig = {}) {
+    this.idleTimeoutMs = config.idleTimeoutMs ?? 300_000;
+    this.heartbeatIntervalMs = config.heartbeatIntervalMs ?? 60_000;
+    this.maxReconnectAttempts = config.maxReconnectAttempts ?? 2;
+  }
+
+  /**
+   * Acquire a connected GatewayRpcConnection for the given config.
+   *
+   * - If a healthy pooled connection exists for the key, it is returned immediately (hot path).
+   * - If the pooled connection is dead, it is evicted and a fresh one is created + connected.
+   * - If no pooled connection exists, a new one is created + connected.
+   *
+   * Callers MUST call `release()` when done so the connection returns to the pool.
+   */
+  async acquire(config: GatewayRuntimeConfig): Promise<GatewayRpcConnection> {
+    if (this.destroyed) {
+      throw new Error("GatewayRpcConnectionPool has been destroyed");
+    }
+
+    const key = this.buildKey(config);
+    this.totalAcquires++;
+
+    const existing = this.pool.get(key);
+
+    // Hot path: reuse healthy connection
+    if (existing && existing.conn && existing.conn["socket"]?.readyState === 1) {
+      existing.isActive = true;
+      existing.lastUsedAt = Date.now();
+      this.stopHeartbeat(existing);
+      this.resetEviction(existing);
+      this.totalReuses++;
+      return existing.conn;
+    }
+
+    // Cold path: evict dead connection, create fresh one
+    if (existing) {
+      this.evictConnection(existing);
+    }
+
+    const conn = await this.createAndConnect(config, 0);
+    const entry: PooledConnection = {
+      conn,
+      key,
+      lastUsedAt: Date.now(),
+      isActive: true,
+      heartbeatTimer: null,
+      evictionTimer: null,
+      reconnectCount: 0,
+    };
+    this.pool.set(key, entry);
+    this.resetEviction(entry);
+    return conn;
+  }
+
+  /**
+   * Return a connection to the pool. After release, the connection may be
+   * reused by the next acquire() call for the same key.
+   */
+  release(config: GatewayRuntimeConfig): void {
+    if (this.destroyed) return;
+
+    const key = this.buildKey(config);
+    const entry = this.pool.get(key);
+    if (!entry) return;
+
+    entry.isActive = false;
+    entry.lastUsedAt = Date.now();
+    this.startHeartbeat(entry);
+    this.resetEviction(entry);
+  }
+
+  getStats(): WsPoolStats {
+    let idle = 0;
+    let active = 0;
+    for (const entry of this.pool.values()) {
+      if (entry.isActive) active++;
+      else idle++;
+    }
+    return {
+      connections: this.pool.size,
+      idleConnections: idle,
+      activeConnections: active,
+      hitRate: this.totalAcquires > 0 ? this.totalReuses / this.totalAcquires : 0,
+      totalAcquires: this.totalAcquires,
+      totalReuses: this.totalReuses,
+      totalReconnects: this.totalReconnects,
+    };
+  }
+
+  destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
+
+    for (const entry of this.pool.values()) {
+      this.stopHeartbeat(entry);
+      this.stopEviction(entry);
+      try {
+        entry.conn.close();
+      } catch {
+        // best-effort close during teardown
+      }
+    }
+    this.pool.clear();
+  }
+
+  // -- Internal helpers -------------------------------------------------------
+
+  private buildKey(config: GatewayRuntimeConfig): string {
+    return `${config.wsUrl}::${config.gatewayToken}::${config.gatewayPassword}`;
+  }
+
+  private async createAndConnect(config: GatewayRuntimeConfig, attempt: number): Promise<GatewayRpcConnection> {
+    const conn = new GatewayRpcConnection(config);
+    try {
+      await conn.connect();
+      return conn;
+    } catch (error) {
+      if (attempt < this.maxReconnectAttempts) {
+        this.totalReconnects++;
+        // Exponential backoff: 100ms, 200ms, 400ms…
+        const delay = 100 * Math.pow(2, attempt);
+        await new Promise((r) => setTimeout(r, delay));
+        return this.createAndConnect(config, attempt + 1);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Check connection health. If the socket is dead, attempt a transparent reconnect.
+   * Returns true if the connection is healthy (or was successfully reconnected).
+   */
+  private async ensureHealthy(entry: PooledConnection, config: GatewayRuntimeConfig): Promise<boolean> {
+    if (entry.conn["socket"]?.readyState === 1) {
+      return true;
+    }
+
+    // Connection is dead — reconnect
+    if (entry.reconnectCount >= this.maxReconnectAttempts) {
+      return false;
+    }
+
+    try {
+      entry.conn.close();
+    } catch {
+      // ignore close errors on dead socket
+    }
+
+    entry.reconnectCount++;
+    this.totalReconnects++;
+
+    try {
+      const conn = await this.createAndConnect(config, 0);
+      entry.conn = conn;
+      entry.lastUsedAt = Date.now();
+      entry.reconnectCount = 0; // reset on successful reconnect
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private evictConnection(entry: PooledConnection): void {
+    this.stopHeartbeat(entry);
+    this.stopEviction(entry);
+    try {
+      entry.conn.close();
+    } catch {
+      // best-effort
+    }
+    this.pool.delete(entry.key);
+  }
+
+  private startHeartbeat(entry: PooledConnection): void {
+    this.stopHeartbeat(entry);
+    entry.heartbeatTimer = setInterval(() => {
+      // Send a lightweight ping to keep the connection alive.
+      // We use the `request` method with a minimal method — if the socket
+      // is dead, the pending request will timeout and we'll learn about it.
+      if (entry.conn["socket"]?.readyState !== 1) {
+        // Socket is not open — stop heartbeat, let eviction or next acquire handle it
+        this.stopHeartbeat(entry);
+        return;
+      }
+      try {
+        // Fire-and-forget heartbeat: we don't await the result.
+        // A successful ping means the gateway is responsive.
+        entry.conn.request("echo", { t: Date.now() }, 5_000, false).catch(() => {
+          // Heartbeat failed — the connection is likely dead.
+          // The next acquire() will detect and reconnect.
+        });
+      } catch {
+        // Synchronous send error — socket is dead
+        this.stopHeartbeat(entry);
+      }
+    }, this.heartbeatIntervalMs);
+  }
+
+  private stopHeartbeat(entry: PooledConnection): void {
+    if (entry.heartbeatTimer !== null) {
+      clearInterval(entry.heartbeatTimer);
+      entry.heartbeatTimer = null;
+    }
+  }
+
+  private resetEviction(entry: PooledConnection): void {
+    this.stopEviction(entry);
+    entry.evictionTimer = setTimeout(() => {
+      if (!entry.isActive) {
+        this.evictConnection(entry);
+      }
+    }, this.idleTimeoutMs);
+  }
+
+  private stopEviction(entry: PooledConnection): void {
+    if (entry.evictionTimer !== null) {
+      clearTimeout(entry.evictionTimer);
+      entry.evictionTimer = null;
+    }
+  }
+}
+
 /**
  * Bridges A2A inbound messages to OpenClaw agent dispatch.
  *
@@ -976,6 +1258,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
   private readonly agentResponseTimeoutMs: number;
   private readonly security: GatewayConfig["security"];
   private readonly taskContextByTaskId: Map<string, string>;
+  private readonly wsPool: GatewayRpcConnectionPool;
 
   constructor(api: OpenClawPluginApi, config: GatewayConfig) {
     this.api = api;
@@ -989,6 +1272,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
         : DEFAULT_AGENT_RESPONSE_TIMEOUT_MS;
 
     this.taskContextByTaskId = new Map();
+    this.wsPool = new GatewayRpcConnectionPool();
   }
 
   async execute(requestContext: RequestContext, eventBus: ExecutionEventBus): Promise<void> {
@@ -1188,9 +1472,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
   ): Promise<AgentResponse> {
     const messageText = extractInboundMessageText(userMessage);
     const gatewayConfig = this.resolveGatewayRuntimeConfig();
-    const gateway = new GatewayRpcConnection(gatewayConfig);
-
-    await gateway.connect();
+    const gateway = await this.wsPool.acquire(gatewayConfig);
 
     try {
       // Derive a deterministic session key from A2A contextId for:
@@ -1241,7 +1523,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
 
       throw new Error("No assistant response text returned by gateway");
     } finally {
-      gateway.close();
+      this.wsPool.release(gatewayConfig);
     }
   }
 
