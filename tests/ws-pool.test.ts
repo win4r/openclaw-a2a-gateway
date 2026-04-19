@@ -460,17 +460,60 @@ describe("GatewayRpcConnectionPool", () => {
     const pool = new GatewayRpcConnectionPool({ idleTimeoutMs: 5_000 });
     const config = makeConfig();
 
-    // Acquire — active
+    // Acquire — active (refCount = 1)
     await pool.acquire(config);
     let stats = pool.getStats();
     assert.equal(stats.activeConnections, 1);
     assert.equal(stats.idleConnections, 0);
 
-    // Release — idle
+    // Release — idle (refCount = 0)
     pool.release(config);
     stats = pool.getStats();
     assert.equal(stats.activeConnections, 0);
     assert.equal(stats.idleConnections, 1);
+
+    pool.destroy();
+  });
+
+  it("concurrent acquire: connection is not evicted while still in use", async () => {
+    const pool = new GatewayRpcConnectionPool({
+      idleTimeoutMs: 200,  // short timeout for test
+      heartbeatIntervalMs: 999_999,
+    });
+    const config = makeConfig();
+
+    // Two concurrent acquires — both get the same connection
+    const conn1 = await pool.acquire(config);
+    const conn2 = await pool.acquire(config);
+
+    // Same underlying connection object
+    assert.strictEqual(conn1, conn2, "Concurrent acquires should return the same connection");
+
+    let stats = pool.getStats();
+    assert.equal(stats.activeConnections, 1, "One active connection with refCount=2");
+    assert.equal(stats.idleConnections, 0);
+
+    // Release one — connection should still be active (refCount = 1)
+    pool.release(config);
+    stats = pool.getStats();
+    assert.equal(stats.activeConnections, 1, "Still active after partial release");
+    assert.equal(stats.idleConnections, 0);
+
+    // Wait past the idle timeout — should NOT be evicted because refCount > 0
+    await new Promise((r) => setTimeout(r, 350));
+    stats = pool.getStats();
+    assert.equal(stats.connections, 1, "Connection not evicted while still in use");
+
+    // Release the remaining one — now idle (refCount = 0)
+    pool.release(config);
+    stats = pool.getStats();
+    assert.equal(stats.activeConnections, 0);
+    assert.equal(stats.idleConnections, 1, "Now idle after final release");
+
+    // Wait for eviction
+    await new Promise((r) => setTimeout(r, 350));
+    stats = pool.getStats();
+    assert.equal(stats.connections, 0, "Connection evicted after becoming idle");
 
     pool.destroy();
   });

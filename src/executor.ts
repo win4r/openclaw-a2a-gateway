@@ -760,6 +760,11 @@ export class GatewayRpcConnection {
     this.rejectAllPending(error);
   }
 
+  /** Whether the underlying WebSocket socket is currently open (readyState === OPEN). */
+  get isOpen(): boolean {
+    return this.socket?.readyState === 1;
+  }
+
   private awaitConnectChallenge(): Promise<void> {
     if (this.connectChallengeRejecter) {
       this.connectChallengeRejecter(new Error("gateway connect challenge wait superseded"));
@@ -990,10 +995,11 @@ interface PooledConnection {
   conn: GatewayRpcConnection;
   key: string;
   lastUsedAt: number;
-  isActive: boolean;
+  /** Reference count: how many concurrent acquire() calls are using this connection.
+   *  When refCount > 0 the connection is active; when refCount === 0 it is idle. */
+  refCount: number;
   heartbeatTimer: ReturnType<typeof setTimeout> | null;
   evictionTimer: ReturnType<typeof setTimeout> | null;
-  reconnectCount: number;
 }
 
 /**
@@ -1048,11 +1054,12 @@ export class GatewayRpcConnectionPool {
     const existing = this.pool.get(key);
 
     // Hot path: reuse healthy connection
-    if (existing && existing.conn && existing.conn["socket"]?.readyState === 1) {
-      existing.isActive = true;
+    if (existing && existing.conn && existing.conn.isOpen) {
+      existing.refCount++;
       existing.lastUsedAt = Date.now();
       this.stopHeartbeat(existing);
-      this.resetEviction(existing);
+      // Eviction timer is already stopped while refCount > 0 (set in release),
+      // but we reset it here for housekeeping so the clock starts fresh on next release.
       this.totalReuses++;
       return existing.conn;
     }
@@ -1067,19 +1074,18 @@ export class GatewayRpcConnectionPool {
       conn,
       key,
       lastUsedAt: Date.now(),
-      isActive: true,
+      refCount: 1,
       heartbeatTimer: null,
       evictionTimer: null,
-      reconnectCount: 0,
     };
     this.pool.set(key, entry);
-    this.resetEviction(entry);
     return conn;
   }
 
   /**
-   * Return a connection to the pool. After release, the connection may be
-   * reused by the next acquire() call for the same key.
+   * Return a connection to the pool. Decrements the reference count; only
+   * when all acquire() calls have been released (refCount === 0) does the
+   * connection transition to idle state with heartbeat + eviction timer.
    */
   release(config: GatewayRuntimeConfig): void {
     if (this.destroyed) return;
@@ -1088,17 +1094,21 @@ export class GatewayRpcConnectionPool {
     const entry = this.pool.get(key);
     if (!entry) return;
 
-    entry.isActive = false;
+    entry.refCount = Math.max(0, entry.refCount - 1);
     entry.lastUsedAt = Date.now();
-    this.startHeartbeat(entry);
-    this.resetEviction(entry);
+
+    if (entry.refCount === 0) {
+      // Connection is now idle — start keep-alive and eviction timer
+      this.startHeartbeat(entry);
+      this.resetEviction(entry);
+    }
   }
 
   getStats(): WsPoolStats {
     let idle = 0;
     let active = 0;
     for (const entry of this.pool.values()) {
-      if (entry.isActive) active++;
+      if (entry.refCount > 0) active++;
       else idle++;
     }
     return {
@@ -1131,7 +1141,9 @@ export class GatewayRpcConnectionPool {
   // -- Internal helpers -------------------------------------------------------
 
   private buildKey(config: GatewayRuntimeConfig): string {
-    return `${config.wsUrl}::${config.gatewayToken}::${config.gatewayPassword}`;
+    const h = crypto.createHash("sha256");
+    h.update(config.wsUrl + "\0" + config.gatewayToken + "\0" + config.gatewayPassword);
+    return h.digest("hex");
   }
 
   private async createAndConnect(config: GatewayRuntimeConfig, attempt: number): Promise<GatewayRpcConnection> {
@@ -1148,40 +1160,6 @@ export class GatewayRpcConnectionPool {
         return this.createAndConnect(config, attempt + 1);
       }
       throw error;
-    }
-  }
-
-  /**
-   * Check connection health. If the socket is dead, attempt a transparent reconnect.
-   * Returns true if the connection is healthy (or was successfully reconnected).
-   */
-  private async ensureHealthy(entry: PooledConnection, config: GatewayRuntimeConfig): Promise<boolean> {
-    if (entry.conn["socket"]?.readyState === 1) {
-      return true;
-    }
-
-    // Connection is dead — reconnect
-    if (entry.reconnectCount >= this.maxReconnectAttempts) {
-      return false;
-    }
-
-    try {
-      entry.conn.close();
-    } catch {
-      // ignore close errors on dead socket
-    }
-
-    entry.reconnectCount++;
-    this.totalReconnects++;
-
-    try {
-      const conn = await this.createAndConnect(config, 0);
-      entry.conn = conn;
-      entry.lastUsedAt = Date.now();
-      entry.reconnectCount = 0; // reset on successful reconnect
-      return true;
-    } catch {
-      return false;
     }
   }
 
@@ -1202,7 +1180,7 @@ export class GatewayRpcConnectionPool {
       // Send a lightweight ping to keep the connection alive.
       // We use the `request` method with a minimal method — if the socket
       // is dead, the pending request will timeout and we'll learn about it.
-      if (entry.conn["socket"]?.readyState !== 1) {
+      if (!entry.conn.isOpen) {
         // Socket is not open — stop heartbeat, let eviction or next acquire handle it
         this.stopHeartbeat(entry);
         return;
@@ -1231,7 +1209,7 @@ export class GatewayRpcConnectionPool {
   private resetEviction(entry: PooledConnection): void {
     this.stopEviction(entry);
     entry.evictionTimer = setTimeout(() => {
-      if (!entry.isActive) {
+      if (entry.refCount === 0) {
         this.evictConnection(entry);
       }
     }, this.idleTimeoutMs);
@@ -1273,6 +1251,11 @@ export class OpenClawAgentExecutor implements AgentExecutor {
 
     this.taskContextByTaskId = new Map();
     this.wsPool = new GatewayRpcConnectionPool();
+  }
+
+  /** Clean up the WS connection pool. Call this during plugin shutdown. */
+  close(): void {
+    this.wsPool.destroy();
   }
 
   async execute(requestContext: RequestContext, eventBus: ExecutionEventBus): Promise<void> {
