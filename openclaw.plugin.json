@@ -2,14 +2,7 @@
   "id": "a2a-gateway",
   "name": "A2A Gateway",
   "description": "OpenClaw A2A v0.3.0 gateway with Agent Card, JSON-RPC, and REST endpoints",
-  "version": "1.3.0",
-  "defaultConfig": {
-    "agentCard": {
-      "name": "OpenClaw A2A Gateway",
-      "description": "A2A bridge for OpenClaw agents",
-      "skills": [{ "id": "chat", "name": "chat", "description": "Chat bridge" }]
-    }
-  },
+  "version": "1.4.0",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -18,22 +11,38 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "name": { "type": "string" },
-          "description": { "type": "string" },
-          "url": { "type": "string" },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
           "skills": {
             "type": "array",
             "items": {
               "oneOf": [
-                { "type": "string" },
+                {
+                  "type": "string"
+                },
                 {
                   "type": "object",
                   "properties": {
-                    "id": { "type": "string" },
-                    "name": { "type": "string" },
-                    "description": { "type": "string" }
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    }
                   },
-                  "required": ["name"]
+                  "required": [
+                    "name"
+                  ]
                 }
               ]
             }
@@ -44,15 +53,24 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "host": { "type": "string", "default": "0.0.0.0" },
-          "port": { "type": "number", "default": 18800 }
+          "host": {
+            "type": "string",
+            "default": "0.0.0.0"
+          },
+          "port": {
+            "type": "number",
+            "default": 18800
+          }
         }
       },
       "storage": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "tasksDir": { "type": "string", "default": "~/.openclaw/a2a-tasks" },
+          "tasksDir": {
+            "type": "string",
+            "default": "~/.openclaw/a2a-tasks"
+          },
           "taskTtlHours": {
             "type": "number",
             "default": 72,
@@ -73,22 +91,37 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "name": { "type": "string" },
-            "agentCardUrl": { "type": "string" },
+            "name": {
+              "type": "string"
+            },
+            "agentCardUrl": {
+              "type": "string"
+            },
             "auth": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
                 "type": {
                   "type": "string",
-                  "enum": ["bearer", "apiKey"]
+                  "enum": [
+                    "bearer",
+                    "apiKey"
+                  ]
                 },
-                "token": { "type": "string" }
+                "token": {
+                  "type": "string"
+                }
               },
-              "required": ["type", "token"]
+              "required": [
+                "type",
+                "token"
+              ]
             }
           },
-          "required": ["name", "agentCardUrl"]
+          "required": [
+            "name",
+            "agentCardUrl"
+          ]
         }
       },
       "security": {
@@ -97,18 +130,27 @@
         "properties": {
           "inboundAuth": {
             "type": "string",
-            "enum": ["none", "bearer"],
+            "enum": [
+              "none",
+              "bearer"
+            ],
             "default": "none"
           },
-          "token": { "type": "string" },
+          "token": {
+            "type": "string"
+          },
           "tokens": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Multiple tokens for zero-downtime rotation. Used alongside or instead of 'token'."
           },
           "allowedMimeTypes": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Allowed MIME type patterns for file transfer (e.g. \"image/*\", \"application/pdf\")"
           },
           "maxFileSizeBytes": {
@@ -125,7 +167,9 @@
           },
           "fileUriAllowlist": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "URI hostname allowlist patterns (e.g. \"*.example.com\"). Empty allows all public hosts."
           }
         }
@@ -145,28 +189,62 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["name", "match", "target"],
+              "required": [
+                "name",
+                "match",
+                "target"
+              ],
               "properties": {
-                "name": { "type": "string", "description": "Human-readable rule name" },
+                "name": {
+                  "type": "string",
+                  "description": "Human-readable rule name"
+                },
                 "match": {
                   "type": "object",
                   "additionalProperties": false,
                   "properties": {
-                    "pattern": { "type": "string", "description": "Regex pattern (case-insensitive)" },
-                    "tags": { "type": "array", "items": { "type": "string" }, "description": "Match any tag (OR)" },
-                    "skills": { "type": "array", "items": { "type": "string" }, "description": "Match peer skills" }
+                    "pattern": {
+                      "type": "string",
+                      "description": "Regex pattern (case-insensitive)"
+                    },
+                    "tags": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Match any tag (OR)"
+                    },
+                    "skills": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Match peer skills"
+                    }
                   }
                 },
                 "target": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["peer"],
+                  "required": [
+                    "peer"
+                  ],
                   "properties": {
-                    "peer": { "type": "string", "description": "Target peer name" },
-                    "agentId": { "type": "string", "description": "Route to specific agentId" }
+                    "peer": {
+                      "type": "string",
+                      "description": "Target peer name"
+                    },
+                    "agentId": {
+                      "type": "string",
+                      "description": "Route to specific agentId"
+                    }
                   }
                 },
-                "priority": { "type": "number", "default": 0, "description": "Higher = checked first" }
+                "priority": {
+                  "type": "number",
+                  "default": 0,
+                  "description": "Higher = checked first"
+                }
               }
             }
           },
@@ -175,16 +253,47 @@
             "additionalProperties": false,
             "description": "Bio-inspired Hill equation scoring for route selection (Cell Signaling → routing affinity). When configured, routes are scored and the best match is selected instead of the first match.",
             "properties": {
-              "hillCoefficient": { "type": "number", "default": 1, "minimum": 0.1, "description": "Hill coefficient n: 1=linear (Michaelis-Menten), >1=threshold effect, <1=dispersive" },
-              "kd": { "type": "number", "default": 0.5, "minimum": 0.01, "maximum": 1, "description": "Half-saturation constant: affinity at which score = 0.5" },
+              "hillCoefficient": {
+                "type": "number",
+                "default": 1,
+                "minimum": 0.1,
+                "description": "Hill coefficient n: 1=linear (Michaelis-Menten), >1=threshold effect, <1=dispersive"
+              },
+              "kd": {
+                "type": "number",
+                "default": 0.5,
+                "minimum": 0.01,
+                "maximum": 1,
+                "description": "Half-saturation constant: affinity at which score = 0.5"
+              },
               "weights": {
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
-                  "skills": { "type": "number", "default": 0.4, "minimum": 0, "maximum": 1 },
-                  "tags": { "type": "number", "default": 0.3, "minimum": 0, "maximum": 1 },
-                  "pattern": { "type": "number", "default": 0.2, "minimum": 0, "maximum": 1 },
-                  "successRate": { "type": "number", "default": 0.1, "minimum": 0, "maximum": 1 }
+                  "skills": {
+                    "type": "number",
+                    "default": 0.4,
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "tags": {
+                    "type": "number",
+                    "default": 0.3,
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "pattern": {
+                    "type": "number",
+                    "default": 0.2,
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "successRate": {
+                    "type": "number",
+                    "default": 0.1,
+                    "minimum": 0,
+                    "maximum": 1
+                  }
                 }
               }
             }
@@ -210,8 +319,20 @@
             "additionalProperties": false,
             "description": "Bio-inspired Michaelis-Menten soft concurrency limit (enzyme kinetics → backpressure). Adds progressive delay as load approaches capacity, instead of hard rejection.",
             "properties": {
-              "km": { "type": "number", "default": 0.5, "minimum": 0.01, "maximum": 1, "description": "Half-saturation constant: load fraction at which delay = baseDelayMs/2" },
-              "baseDelayMs": { "type": "number", "default": 1000, "minimum": 100, "maximum": 10000, "description": "Maximum delay at full saturation (ms)" }
+              "km": {
+                "type": "number",
+                "default": 0.5,
+                "minimum": 0.01,
+                "maximum": 1,
+                "description": "Half-saturation constant: load fraction at which delay = baseDelayMs/2"
+              },
+              "baseDelayMs": {
+                "type": "number",
+                "default": 1000,
+                "minimum": 100,
+                "maximum": 10000,
+                "description": "Maximum delay at full saturation (ms)"
+              }
             }
           }
         }
@@ -234,7 +355,10 @@
           },
           "metricsAuth": {
             "type": "string",
-            "enum": ["none", "bearer"],
+            "enum": [
+              "none",
+              "bearer"
+            ],
             "default": "none",
             "description": "Authentication for the metrics endpoint. When set to 'bearer', reuses security.token/tokens."
           },
@@ -264,29 +388,74 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "enabled": { "type": "boolean", "default": true },
-              "intervalMs": { "type": "number", "default": 30000, "minimum": 1000 },
-              "timeoutMs": { "type": "number", "default": 5000, "minimum": 500 }
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              },
+              "intervalMs": {
+                "type": "number",
+                "default": 30000,
+                "minimum": 1000
+              },
+              "timeoutMs": {
+                "type": "number",
+                "default": 5000,
+                "minimum": 500
+              }
             }
           },
           "retry": {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "maxRetries": { "type": "number", "default": 3, "minimum": 0 },
-              "baseDelayMs": { "type": "number", "default": 1000, "minimum": 100 },
-              "maxDelayMs": { "type": "number", "default": 10000, "minimum": 100 }
+              "maxRetries": {
+                "type": "number",
+                "default": 3,
+                "minimum": 0
+              },
+              "baseDelayMs": {
+                "type": "number",
+                "default": 1000,
+                "minimum": 100
+              },
+              "maxDelayMs": {
+                "type": "number",
+                "default": 10000,
+                "minimum": 100
+              }
             }
           },
           "circuitBreaker": {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "failureThreshold": { "type": "number", "default": 5, "minimum": 1 },
-              "resetTimeoutMs": { "type": "number", "default": 30000, "minimum": 1000 },
-              "softThreshold": { "type": "number", "minimum": 1, "description": "Failures before DESENSITIZED state (must be < failureThreshold)" },
-              "desensitizedCapacity": { "type": "number", "default": 0.5, "minimum": 0, "maximum": 1, "description": "Traffic fraction in DESENSITIZED state" },
-              "recoveryRateConstant": { "type": "number", "minimum": 0.01, "description": "Exponential recovery rate k; omit for single-probe mode" }
+              "failureThreshold": {
+                "type": "number",
+                "default": 5,
+                "minimum": 1
+              },
+              "resetTimeoutMs": {
+                "type": "number",
+                "default": 30000,
+                "minimum": 1000
+              },
+              "softThreshold": {
+                "type": "number",
+                "minimum": 1,
+                "description": "Failures before DESENSITIZED state (must be < failureThreshold)"
+              },
+              "desensitizedCapacity": {
+                "type": "number",
+                "default": 0.5,
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Traffic fraction in DESENSITIZED state"
+              },
+              "recoveryRateConstant": {
+                "type": "number",
+                "minimum": 0.01,
+                "description": "Exponential recovery rate k; omit for single-probe mode"
+              }
             }
           }
         }
@@ -345,10 +514,30 @@
             "additionalProperties": false,
             "description": "Bio-inspired Quorum Sensing density-aware discovery (bacterial QS → adaptive polling). When enabled, discovery polling frequency adapts to peer density: high density → slower polling, low density → faster polling.",
             "properties": {
-              "activateThreshold": { "type": "number", "default": 5, "minimum": 1, "description": "Peer count to enter stable mode (slower polling)" },
-              "deactivateThreshold": { "type": "number", "default": 2, "minimum": 0, "description": "Peer count to exit stable mode (must be < activateThreshold for hysteresis)" },
-              "stableIntervalMs": { "type": "number", "default": 120000, "minimum": 1000, "description": "Polling interval in stable mode (ms)" },
-              "exploreIntervalMs": { "type": "number", "default": 10000, "minimum": 1000, "description": "Polling interval in explore mode (ms)" }
+              "activateThreshold": {
+                "type": "number",
+                "default": 5,
+                "minimum": 1,
+                "description": "Peer count to enter stable mode (slower polling)"
+              },
+              "deactivateThreshold": {
+                "type": "number",
+                "default": 2,
+                "minimum": 0,
+                "description": "Peer count to exit stable mode (must be < activateThreshold for hysteresis)"
+              },
+              "stableIntervalMs": {
+                "type": "number",
+                "default": 120000,
+                "minimum": 1000,
+                "description": "Polling interval in stable mode (ms)"
+              },
+              "exploreIntervalMs": {
+                "type": "number",
+                "default": 10000,
+                "minimum": 1000,
+                "description": "Polling interval in explore mode (ms)"
+              }
             }
           }
         }
@@ -359,13 +548,21 @@
     "peers": {
       "items": {
         "auth": {
-          "token": { "sensitive": true }
+          "token": {
+            "sensitive": true
+          }
         }
       }
     },
     "security": {
-      "token": { "sensitive": true },
-      "tokens": { "items": { "sensitive": true } }
+      "token": {
+        "sensitive": true
+      },
+      "tokens": {
+        "items": {
+          "sensitive": true
+        }
+      }
     }
   }
 }
