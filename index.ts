@@ -118,11 +118,13 @@ function resolveConfiguredPath(
 
 function parseAgentCard(raw: Record<string, unknown>): AgentCardConfig {
   const skills = Array.isArray(raw.skills) ? raw.skills : [];
+  const grpcProxy = typeof raw.grpcProxy === "boolean" ? raw.grpcProxy : undefined;
 
   return {
     name: asString(raw.name, "OpenClaw A2A Gateway"),
     description: asString(raw.description, "A2A bridge for OpenClaw agents"),
     url: asString(raw.url, ""),
+    ...(grpcProxy !== undefined ? { grpcProxy } : {}),
     skills: skills.map((entry) => {
       if (typeof entry === "string") {
         return entry;
@@ -330,9 +332,8 @@ const plugin = {
     const pushStore = new PushNotificationStore();
     const client = new A2AClient();
     const taskStore = new FileTaskStore(config.storage.tasksDir);
-    const agentExecutor = new OpenClawAgentExecutor(api, config);
     const executor = new QueueingAgentExecutor(
-      agentExecutor,
+      new OpenClawAgentExecutor(api, config),
       telemetry,
       config.limits,
       config.routing.defaultAgentId,
@@ -982,7 +983,6 @@ const plugin = {
         healthManager?.stop();
         auditLogger.close();
         client.destroy();
-        agentExecutor.close();
 
         // Stop task cleanup timer
         if (cleanupTimer) {

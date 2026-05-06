@@ -21,6 +21,7 @@
           "name": { "type": "string" },
           "description": { "type": "string" },
           "url": { "type": "string" },
+          "grpcProxy": { "type": "boolean" },
           "skills": {
             "type": "array",
             "items": {
