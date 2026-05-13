@@ -145,6 +145,22 @@ openclaw config set plugins.entries.a2a-gateway.config.agentCard.skills '[{"id":
 
 > **Important:** Replace `<YOUR_IP>` with the IP address reachable by your peers (Tailscale IP, LAN IP, or public IP).
 
+#### Example: advertise X/Twitter automation through TweetClaw
+
+If one OpenClaw node has [TweetClaw](https://github.com/Xquik-dev/tweetclaw) installed, advertise that capability in its Agent Card so other A2A peers can discover where to send X/Twitter work:
+
+```bash
+openclaw plugins install @xquik/tweetclaw
+openclaw config set tools.alsoAllow '["explore", "tweetclaw"]'
+
+openclaw config set plugins.entries.a2a-gateway.config.agentCard.skills '[
+  {"id":"chat","name":"chat","description":"Bridge chat/messages to OpenClaw agents"},
+  {"id":"x-twitter","name":"X/Twitter automation","description":"Use TweetClaw to search tweets, search tweet replies, export followers, look up users, post tweets/replies, handle media, DMs, monitors, webhooks, and giveaway draws."}
+]'
+```
+
+Keep TweetClaw credentials on the node that runs TweetClaw. Peer agents should send a normal A2A task, while the TweetClaw node handles X/Twitter API calls and OpenClaw approval prompts for visible actions such as posts, replies, follows, DMs, monitors, and webhooks.
+
 ### 4. Configure the A2A server
 
 ```bash
@@ -482,6 +498,19 @@ node <PLUGIN_PATH>/skill/scripts/a2a-send.mjs \
 | `routing.rules[].target.peer` | string | *required* | Peer to route to |
 | `routing.rules[].target.agentId` | string | — | Override agentId on the peer |
 | `routing.rules[].priority` | number | `0` | Higher = checked first |
+
+Example rule for routing X/Twitter requests to a peer whose Agent Card advertises the `x-twitter` skill:
+
+```bash
+openclaw config set plugins.entries.a2a-gateway.config.routing.rules '[
+  {
+    "name": "Route X/Twitter jobs",
+    "match": {"skills": ["x-twitter"]},
+    "target": {"peer": "TweetClaw-Node"},
+    "priority": 10
+  }
+]'
+```
 
 ### Resilience
 
