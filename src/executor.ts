@@ -825,7 +825,7 @@ export class GatewayRpcConnection {
 
     const params: Record<string, unknown> = {
       minProtocol: 3,
-      maxProtocol: 3,
+      maxProtocol: 4,
       client: {
         id: "cli",
         version: "a2a-gateway-plugin",

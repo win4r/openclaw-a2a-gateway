@@ -54,9 +54,10 @@ describe("session key format (PR #9, issue #8)", () => {
 
     const originalWebSocket = (globalThis as any).WebSocket;
     (globalThis as any).WebSocket = MockWS;
+    let executor: OpenClawAgentExecutor | undefined;
 
     try {
-      const executor = new OpenClawAgentExecutor(api, makeConfig() as unknown as GatewayConfig);
+      executor = new OpenClawAgentExecutor(api, makeConfig() as unknown as GatewayConfig);
 
       await executor.execute(
         {
@@ -97,6 +98,7 @@ describe("session key format (PR #9, issue #8)", () => {
         "session key should follow agent:{agentId}:a2a:{contextId} format"
       );
     } finally {
+      executor?.close();
       (globalThis as any).WebSocket = originalWebSocket;
     }
   });
@@ -162,6 +164,49 @@ describe("a2a-gateway plugin", () => {
       const parts = message.parts as Array<Record<string, unknown>>;
       assert.equal(parts[0].text, "Gateway response");
     } finally {
+      (globalThis as any).WebSocket = originalWebSocket;
+    }
+  });
+
+  it("advertises OpenClaw gateway protocol compatibility through version 4", async () => {
+    const api = createApi();
+    let capturedConnectParams: Record<string, unknown> | undefined;
+
+    const MockWS = createMockWebSocketClass({
+      onConnect: (params) => {
+        capturedConnectParams = params;
+        return { status: "ok" };
+      },
+    });
+
+    const originalWebSocket = (globalThis as any).WebSocket;
+    (globalThis as any).WebSocket = MockWS;
+    let executor: OpenClawAgentExecutor | undefined;
+
+    try {
+      executor = new OpenClawAgentExecutor(api, makeConfig() as unknown as GatewayConfig);
+
+      await executor.execute(
+        {
+          taskId: "task-protocol",
+          contextId: "ctx-protocol",
+          userMessage: {
+            messageId: "msg-protocol",
+            role: "user",
+            agentId: "writer-agent",
+            parts: [{ kind: "text", text: "test protocol version" }],
+          },
+        } as any,
+        {
+          publish() {},
+          finished() {},
+        } as any
+      );
+
+      assert.equal(capturedConnectParams?.minProtocol, 3);
+      assert.equal(capturedConnectParams?.maxProtocol, 4);
+    } finally {
+      executor?.close();
       (globalThis as any).WebSocket = originalWebSocket;
     }
   });
