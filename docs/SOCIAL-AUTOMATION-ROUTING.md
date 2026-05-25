@@ -63,15 +63,45 @@ The rule is intentionally broad enough for user language such as "search tweets
 about OpenClaw", "post this reply", "export followers", "monitor this account",
 "send a direct message", or "run a giveaway draw".
 
-## 5. Test the Route
+## 5. Test Direct Peer Connectivity
 
 ```bash
 node <PLUGIN_PATH>/skill/scripts/a2a-send.mjs \
   --peer-url http://100.10.10.3:18800 \
   --token <SOCIAL_OPS_TOKEN> \
   --agent-id social \
-  --message "Search tweets about OpenClaw plugins and summarize the top themes."
+  --message "Reply with your Agent Card name and advertised TweetClaw skills."
 ```
+
+This only proves the Social-Ops peer is reachable. It does not exercise the
+Coordinator routing rule.
+
+## 6. Test the Coordinator Route
+
+On the Coordinator node, invoke the OpenClaw gateway method `a2a.send` with no
+`peer` or `name` parameter:
+
+```json
+{
+  "method": "a2a.send",
+  "params": {
+    "message": {
+      "text": "Search tweets about OpenClaw plugins and summarize the top themes."
+    }
+  }
+}
+```
+
+Use the Coordinator gateway endpoint and Coordinator gateway auth token for this
+request, not the Social-Ops A2A endpoint or token. Expected behavior:
+
+- `routing.rules` matches the tweet search wording.
+- the cached Social-Ops Agent Card skills satisfy the TweetClaw skill match.
+- the Coordinator forwards the message to peer `Social-Ops` with `agentId`
+  `social`.
+
+Do not include `peer` or `name` while testing routing. Explicit peer selection
+bypasses routing rules and can hide a broken rule.
 
 For write actions, ask the Social-Ops peer to draft first and request explicit
 approval before posting.
