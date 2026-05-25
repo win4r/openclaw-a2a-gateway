@@ -172,6 +172,10 @@ openclaw config set plugins.entries.a2a-gateway.config.security.token "$TOKEN"
 openclaw config set plugins.entries.a2a-gateway.config.routing.defaultAgentId 'main'
 ```
 
+For a concrete peer-skills example, see
+[`docs/SOCIAL-AUTOMATION-ROUTING.md`](./docs/SOCIAL-AUTOMATION-ROUTING.md) for
+routing X/Twitter automation prompts to a TweetClaw-enabled OpenClaw peer.
+
 ### 7. Restart the gateway
 
 ```bash
@@ -482,6 +486,10 @@ node <PLUGIN_PATH>/skill/scripts/a2a-send.mjs \
 | `routing.rules[].target.peer` | string | *required* | Peer to route to |
 | `routing.rules[].target.agentId` | string | — | Override agentId on the peer |
 | `routing.rules[].priority` | number | `0` | Higher = checked first |
+
+Example: route X/Twitter prompts to a TweetClaw peer by matching both prompt
+language and advertised peer skills. See
+[`docs/SOCIAL-AUTOMATION-ROUTING.md`](./docs/SOCIAL-AUTOMATION-ROUTING.md).
 
 ### Resilience
 
