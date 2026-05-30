@@ -921,6 +921,24 @@ export class GatewayRpcConnection {
         if (nonce && this.connectChallengeResolver) {
           this.connectChallengeResolver(nonce);
         }
+        return;
+      }
+
+      if (frame.event === "agent") {
+        const eventPayload = asObject(frame.payload);
+        const eventResult = asObject(eventPayload?.result);
+        const eventPayloads = Array.isArray(eventResult?.payloads) ? eventResult.payloads : [];
+        const hasAgentContent = eventPayloads.some((entry) => Boolean(extractAgentPayloadText(entry)) || extractMediaUrlsFromPayload(entry).length > 0);
+        if (hasAgentContent) {
+          const pendingEntries = Array.from(this.pending.entries())
+            .filter(([, entry]) => entry.expectFinal && entry.method === "agent");
+          if (pendingEntries.length === 1) {
+            const [pendingId, pending] = pendingEntries[0];
+            this.pending.delete(pendingId);
+            clearTimeout(pending.timer);
+            pending.resolve(frame.payload);
+          }
+        }
       }
       return;
     }
