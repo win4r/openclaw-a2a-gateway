@@ -175,6 +175,8 @@ openclaw config set plugins.entries.a2a-gateway.config.routing.defaultAgentId 'm
 For a concrete peer-skills example, see
 [`docs/SOCIAL-AUTOMATION-ROUTING.md`](./docs/SOCIAL-AUTOMATION-ROUTING.md) for
 routing X/Twitter automation prompts to a TweetClaw-enabled OpenClaw peer.
+For routing X/Twitter read traffic to a GetXAPI-backed peer, see
+[`docs/SOCIAL-AUTOMATION-ROUTING-GETXAPI.md`](./docs/SOCIAL-AUTOMATION-ROUTING-GETXAPI.md).
 
 ### 7. Restart the gateway
 
@@ -491,6 +493,8 @@ node <PLUGIN_PATH>/skill/scripts/a2a-send.mjs \
 Example: route X/Twitter prompts to a TweetClaw peer by matching both prompt
 language and advertised peer skills. See
 [`docs/SOCIAL-AUTOMATION-ROUTING.md`](./docs/SOCIAL-AUTOMATION-ROUTING.md).
+For routing X/Twitter read traffic to a GetXAPI peer, see
+[`docs/SOCIAL-AUTOMATION-ROUTING-GETXAPI.md`](./docs/SOCIAL-AUTOMATION-ROUTING-GETXAPI.md).
 
 ### Resilience
 
