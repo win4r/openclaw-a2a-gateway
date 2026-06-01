@@ -19,12 +19,15 @@ TweetClaw peer and reads to a GetXAPI peer.
 ## 1. Configure GetXAPI on the Social-Read Node
 
 ```bash
-export GETXAPI_API_KEY=...
-export GETXAPI_ENABLE_ACTIONS=false
+export GETXAPI_KEY=...
 ```
 
-`GETXAPI_ENABLE_ACTIONS=false` keeps the backend read-only. Do not put
-`GETXAPI_API_KEY` in A2A messages, Agent Cards, or shared `TOOLS.md` files.
+The backend is read-only when only `GETXAPI_KEY` is set — read endpoints
+(search, profile, timeline, follower graph) work with the API key alone.
+Write endpoints additionally require X account auth (`X_AUTH_TOKEN`,
+`X_CT0`, `X_TWID`) or an `x_login` flow, which are intentionally not set on
+a read-only node. Do not put `GETXAPI_KEY` in A2A messages, Agent Cards,
+or shared `TOOLS.md` files.
 
 ## 2. Advertise GetXAPI Read Skills in the Agent Card
 
@@ -100,7 +103,7 @@ Expected behavior:
 ## GetXAPI Endpoint Reference
 
 - `GET https://api.getxapi.com/twitter/tweet/advanced_search?q=<query>`
-- Header: `Authorization: Bearer ${GETXAPI_API_KEY}`
+- Header: `Authorization: Bearer ${GETXAPI_KEY}`
 
 For write actions, keep routing them to a TweetClaw peer per
 `SOCIAL-AUTOMATION-ROUTING.md`. GetXAPI in this recipe stays read-only.
