@@ -967,11 +967,9 @@ const plugin = {
                   resolve(); // Non-fatal: HTTP still works
                   return;
                 }
-                try {
-                  grpcServer!.start();
-                } catch {
-                  // ignore: some grpc-js versions auto-start
-                }
+                // grpc-js >=1.10 auto-starts on bindAsync; start() is a no-op that
+                // emits a DeprecationWarning. Omit it entirely.
+                // https://grpc.github.io/grpc/node/grpc.Server.html#start
                 api.logger.info(
                   `a2a-gateway: gRPC listening on ${config.server.host}:${grpcPort}`
                 );
