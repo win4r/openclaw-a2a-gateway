@@ -2,7 +2,7 @@
   "name": "openclaw-a2a-gateway",
   "version": "1.4.0",
   "type": "module",
-  "description": "OpenClaw plugin implementing the A2A (Agent-to-Agent) v0.3.0 protocol — bio-inspired routing, discovery, and resilience for multi-agent ecosystems",
+  "description": "OpenClaw plugin implementing the A2A (Agent-to-Agent) v1.0 protocol — bio-inspired routing, discovery, and resilience for multi-agent ecosystems",
   "main": "index.ts",
   "keywords": [
     "openclaw",
@@ -22,7 +22,7 @@
     "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
-    "@a2a-js/sdk": "^0.3.13",
+    "@a2a-js/sdk": "^1.0.0-alpha.0",
     "@bufbuild/protobuf": "^2.11.0",
     "@grpc/grpc-js": "^1.14.3",
     "express": "^4.21.2",

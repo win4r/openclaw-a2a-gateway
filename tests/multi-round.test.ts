@@ -14,7 +14,10 @@ import {
   createApi,
   createEventBus,
   createMockWebSocketClass,
+  lastPublishedTask,
   makeConfig,
+  partTextFromJson,
+  TaskState,
 } from "./helpers.js";
 
 async function executeRound(executor: OpenClawAgentExecutor, taskId: string, contextId: string): Promise<void> {
@@ -25,11 +28,10 @@ async function executeRound(executor: OpenClawAgentExecutor, taskId: string, con
       taskId,
       contextId,
       userMessage: {
-        kind: "message",
-        messageId: `msg-${taskId}`,
-        role: "user",
+                messageId: `msg-${taskId}`,
+        role: "ROLE_USER",
         agentId: "writer-agent",
-        parts: [{ kind: "text", text: `hello-${taskId}` }],
+        parts: [{ text: `hello-${taskId}` }],
       },
     } as any,
     eventBus.bus,
@@ -134,16 +136,16 @@ describe("history preservation across rounds", () => {
         {
           kind: "message" as const,
           messageId: "msg-round-1-user",
-          role: "user" as const,
+          role: "ROLE_USER" as const,
           contextId: "ctx-hist",
-          parts: [{ kind: "text" as const, text: "round-1 question" }],
+          parts: [{ text: "round-1 question" }],
         },
         {
           kind: "message" as const,
           messageId: "msg-round-1-agent",
-          role: "agent" as const,
+          role: "ROLE_AGENT" as const,
           contextId: "ctx-hist",
-          parts: [{ kind: "text" as const, text: "round-1 answer" }],
+          parts: [{ text: "round-1 answer" }],
         },
       ];
 
@@ -152,17 +154,15 @@ describe("history preservation across rounds", () => {
           taskId: "task-hist-2",
           contextId: "ctx-hist",
           task: {
-            kind: "task",
-            id: "task-hist-2",
+                        id: "task-hist-2",
             contextId: "ctx-hist",
-            status: { state: "working", timestamp: new Date().toISOString() },
+            status: { state: TaskState.TASK_STATE_WORKING, timestamp: new Date().toISOString() },
             history: previousHistory,
           },
           userMessage: {
-            kind: "message",
-            messageId: "msg-round-2-user",
-            role: "user",
-            parts: [{ kind: "text", text: "round-2 question" }],
+                        messageId: "msg-round-2-user",
+            role: "ROLE_USER",
+            parts: [{ text: "round-2 question" }],
           },
         } as any,
         eventBus.bus,
@@ -202,7 +202,7 @@ describe("history preservation across rounds", () => {
         messageId: `msg-${i}`,
         role: (i % 2 === 0 ? "user" : "agent") as "user" | "agent",
         contextId: "ctx-big",
-        parts: [{ kind: "text" as const, text: `message ${i}` }],
+        parts: [{ text: `message ${i}` }],
       }));
 
       await executor.execute(
@@ -210,17 +210,15 @@ describe("history preservation across rounds", () => {
           taskId: "task-big",
           contextId: "ctx-big",
           task: {
-            kind: "task",
-            id: "task-big",
+                        id: "task-big",
             contextId: "ctx-big",
-            status: { state: "working", timestamp: new Date().toISOString() },
+            status: { state: TaskState.TASK_STATE_WORKING, timestamp: new Date().toISOString() },
             history: bigHistory,
           },
           userMessage: {
-            kind: "message",
-            messageId: "msg-big-next",
-            role: "user",
-            parts: [{ kind: "text", text: "next" }],
+                        messageId: "msg-big-next",
+            role: "ROLE_USER",
+            parts: [{ text: "next" }],
           },
         } as any,
         eventBus.bus,
@@ -252,10 +250,9 @@ describe("history preservation across rounds", () => {
           taskId: "task-first",
           contextId: "ctx-first",
           userMessage: {
-            kind: "message",
-            messageId: "msg-first",
-            role: "user",
-            parts: [{ kind: "text", text: "hello" }],
+                        messageId: "msg-first",
+            role: "ROLE_USER",
+            parts: [{ text: "hello" }],
           },
         } as any,
         eventBus.bus,
@@ -279,28 +276,25 @@ describe("FileTaskStore multi-round persistence", () => {
       const store = new FileTaskStore(tasksDir);
 
       await store.save({
-        kind: "task",
-        id: "task-1",
+                id: "task-1",
         contextId: "ctx-round",
         status: {
-          state: "working",
+          state: TaskState.TASK_STATE_WORKING,
           timestamp: new Date().toISOString(),
         },
       } as Task);
 
       await store.save({
-        kind: "task",
-        id: "task-1",
+                id: "task-1",
         contextId: "ctx-round",
         status: {
-          state: "completed",
+          state: TaskState.TASK_STATE_COMPLETED,
           timestamp: new Date().toISOString(),
           message: {
-            kind: "message",
-            messageId: "msg-task-1-completed",
-            role: "agent",
+                        messageId: "msg-task-1-completed",
+            role: "ROLE_AGENT",
             contextId: "ctx-round",
-            parts: [{ kind: "text", text: "latest-completed-message" }],
+            parts: [{ text: "latest-completed-message" }],
           },
         },
       } as Task);

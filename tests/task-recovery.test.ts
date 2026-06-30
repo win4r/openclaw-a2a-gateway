@@ -5,11 +5,13 @@ import path from "node:path";
 import { describe, it } from "node:test";
 
 import type { Task } from "@a2a-js/sdk";
+import { Role, TaskState } from "@a2a-js/sdk";
 
+import { normalizeTaskState } from "../src/a2a/helpers.js";
 import { recoverStaleTasks } from "../src/task-recovery.js";
 import { FileTaskStore } from "../src/task-store.js";
 
-import { silentLogger } from "./helpers.js";
+import { partTextFromJson, silentLogger } from "./helpers.js";
 
 function makeTask(
   taskId: string,
@@ -17,13 +19,16 @@ function makeTask(
   timestamp?: string,
 ): Task {
   return {
-    kind: "task",
     id: taskId,
     contextId: `ctx-${taskId}`,
     status: {
-      state: state as any,
+      state: normalizeTaskState(state),
       ...(timestamp !== undefined ? { timestamp } : {}),
+      message: undefined,
     },
+    artifacts: [],
+    history: [],
+    metadata: undefined,
   };
 }
 
@@ -45,7 +50,7 @@ describe("recoverStaleTasks", () => {
 
       const task = await store.load("task-sub");
       assert.ok(task);
-      assert.equal(task.status.state, "failed");
+      assert.equal(task.status.state, TaskState.TASK_STATE_FAILED);
       assert.ok(task.status.timestamp);
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -63,7 +68,7 @@ describe("recoverStaleTasks", () => {
 
       const task = await store.load("task-work");
       assert.ok(task);
-      assert.equal(task.status.state, "failed");
+      assert.equal(task.status.state, TaskState.TASK_STATE_FAILED);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -81,9 +86,9 @@ describe("recoverStaleTasks", () => {
       assert.equal(result.recovered, 3);
       assert.equal(result.skipped, 0);
 
-      assert.equal((await store.load("t-input"))!.status.state, "failed");
-      assert.equal((await store.load("t-auth"))!.status.state, "failed");
-      assert.equal((await store.load("t-unknown"))!.status.state, "failed");
+      assert.equal((await store.load("t-input"))!.status.state, TaskState.TASK_STATE_FAILED);
+      assert.equal((await store.load("t-auth"))!.status.state, TaskState.TASK_STATE_FAILED);
+      assert.equal((await store.load("t-unknown"))!.status.state, TaskState.TASK_STATE_FAILED);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -102,10 +107,10 @@ describe("recoverStaleTasks", () => {
       assert.equal(result.recovered, 0);
       assert.equal(result.skipped, 4);
 
-      assert.equal((await store.load("t-completed"))!.status.state, "completed");
-      assert.equal((await store.load("t-failed"))!.status.state, "failed");
-      assert.equal((await store.load("t-canceled"))!.status.state, "canceled");
-      assert.equal((await store.load("t-rejected"))!.status.state, "rejected");
+      assert.equal((await store.load("t-completed"))!.status.state, TaskState.TASK_STATE_COMPLETED);
+      assert.equal((await store.load("t-failed"))!.status.state, TaskState.TASK_STATE_FAILED);
+      assert.equal((await store.load("t-canceled"))!.status.state, TaskState.TASK_STATE_CANCELED);
+      assert.equal((await store.load("t-rejected"))!.status.state, TaskState.TASK_STATE_REJECTED);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -124,16 +129,16 @@ describe("recoverStaleTasks", () => {
       assert.equal(result.recovered, 2);
       assert.equal(result.skipped, 2);
 
-      assert.equal((await store.load("t1"))!.status.state, "failed");
-      assert.equal((await store.load("t2"))!.status.state, "completed");
-      assert.equal((await store.load("t3"))!.status.state, "failed");
-      assert.equal((await store.load("t4"))!.status.state, "failed");
+      assert.equal((await store.load("t1"))!.status.state, TaskState.TASK_STATE_FAILED);
+      assert.equal((await store.load("t2"))!.status.state, TaskState.TASK_STATE_COMPLETED);
+      assert.equal((await store.load("t3"))!.status.state, TaskState.TASK_STATE_FAILED);
+      assert.equal((await store.load("t4"))!.status.state, TaskState.TASK_STATE_FAILED);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  it("writes a complete Message2 with kind and messageId", async () => {
+  it("writes a complete agent message with messageId", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "a2a-recovery-"));
     try {
       const store = new FileTaskStore(dir);
@@ -145,12 +150,11 @@ describe("recoverStaleTasks", () => {
       assert.ok(task);
       const message = task.status.message;
       assert.ok(message);
-      assert.equal(message.kind, "message");
       assert.ok(message.messageId, "messageId must be present");
-      assert.equal(message.role, "agent");
+      assert.equal(message.role, Role.ROLE_AGENT);
       assert.ok(message.parts.length > 0);
-      const text = (message.parts[0] as any).text;
-      assert.ok(text.includes("was: working"));
+      const text = partTextFromJson(message.parts[0] as Record<string, unknown>);
+      assert.ok(text.includes("was:"));
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

@@ -1,5 +1,6 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { TaskState } from "@a2a-js/sdk";
 import http from "node:http";
 import {
   PushNotificationStore,
@@ -180,7 +181,7 @@ describe("PushNotificationStore webhook POST format", () => {
   });
 
   it("POST body has { taskId, state, task }", async () => {
-    const taskData = { id: "task-abc", status: { state: "completed" } };
+    const taskData = { id: "task-abc", status: { state: TaskState.TASK_STATE_COMPLETED } };
     store.register("task-abc", { url: `http://127.0.0.1:${webhookPort}/hook` });
     await store.send("task-abc", "completed", taskData);
 

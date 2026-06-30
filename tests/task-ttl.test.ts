@@ -22,8 +22,7 @@ function makeTask(
   timestamp?: string,
 ): Task {
   return {
-    kind: "task",
-    id: taskId,
+        id: taskId,
     contextId: `ctx-${taskId}`,
     status: {
       state: state as any,

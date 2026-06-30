@@ -10,8 +10,10 @@ import {
   type HttpHeaders,
 } from "@a2a-js/sdk/client";
 import { GrpcTransportFactory } from "@a2a-js/sdk/client/grpc";
-import type { MessageSendParams, Message } from "@a2a-js/sdk";
+import type { Message, SendMessageRequest } from "@a2a-js/sdk";
+import { Role } from "@a2a-js/sdk";
 
+import { textPart, urlPart } from "./a2a/helpers.js";
 import { ConnectionPool, type ConnectionPoolConfig } from "./connection-pool.js";
 import type { OutboundSendResult, PeerConfig, RetryConfig } from "./types.js";
 import type { PeerHealthManager } from "./peer-health.js";
@@ -53,6 +55,58 @@ function parseAgentCardUrl(agentCardUrl: string): { baseUrl: string; path: strin
     baseUrl: parsed.origin,
     path: parsed.pathname,
   };
+}
+
+function asString(value: unknown, fallback = ""): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function normalizeOutboundRole(role: unknown): Role | undefined {
+  if (role === Role.ROLE_USER || role === Role.ROLE_AGENT) {
+    return role;
+  }
+  if (role === "user" || role === "ROLE_USER" || role === 1) {
+    return Role.ROLE_USER;
+  }
+  if (role === "agent" || role === "ROLE_AGENT" || role === 2) {
+    return Role.ROLE_AGENT;
+  }
+  return undefined;
+}
+
+function normalizeOutboundParts(message: Record<string, unknown>): Message["parts"] {
+  if (Array.isArray(message.parts) && message.parts.length > 0) {
+    return message.parts.map((part) => normalizeOutboundPart(part));
+  }
+  const text = String(message.text || message.message || "");
+  return [textPart(text)];
+}
+
+function normalizeOutboundPart(part: unknown): Message["parts"][number] {
+  if (!part || typeof part !== "object") {
+    return textPart("");
+  }
+  const obj = part as Record<string, unknown>;
+  if (obj.content && typeof obj.content === "object") {
+    return part as Message["parts"][number];
+  }
+  if (typeof obj.text === "string") {
+    return textPart(obj.text);
+  }
+  if (typeof obj.url === "string") {
+    return urlPart(obj.url, asString(obj.mimeType, asString(obj.mediaType, "")));
+  }
+  if (obj.kind === "text" && typeof obj.text === "string") {
+    return textPart(obj.text);
+  }
+  if (obj.kind === "file") {
+    const file = obj.file as Record<string, unknown> | undefined;
+    const uri = file && typeof file.uri === "string" ? file.uri : "";
+    if (uri) {
+      return urlPart(uri, asString(file.mimeType, ""));
+    }
+  }
+  return textPart("");
 }
 
 export class A2AClient {
@@ -233,21 +287,27 @@ export class A2AClient {
         : "";
     const targetAgentName = rawAgentName ? String(rawAgentName) : "";
 
-    const outboundMessage: any = {
-      kind: "message",
+    const outboundParts = normalizeOutboundParts(message);
+    const outboundMessage: Message = {
       messageId: (message.messageId as string) || uuidv4(),
-      role: (message.role as Message["role"]) || "user",
-      parts: (message.parts as Message["parts"]) || [
-        { kind: "text", text: String(message.text || message.message || "") },
-      ],
+      role: normalizeOutboundRole(message.role) ?? Role.ROLE_USER,
+      contextId: asString(message.contextId, ""),
+      taskId: asString(message.taskId, ""),
+      parts: outboundParts,
+      metadata: targetAgentName ? { agentName: targetAgentName } : undefined,
+      extensions: [],
+      referenceTaskIds: [],
     };
 
-    if (targetAgentName) {
-      outboundMessage.agentName = targetAgentName;
-    }
-
-    const sendParams: MessageSendParams = {
+    const sendParams: SendMessageRequest = {
+      tenant: "",
       message: outboundMessage,
+      configuration: {
+        acceptedOutputModes: ["text"],
+        returnImmediately: false,
+        taskPushNotificationConfig: undefined,
+      },
+      metadata: undefined,
     };
 
     const serviceParameters: Record<string, string> = {};
@@ -275,20 +335,11 @@ export class A2AClient {
       });
       const agentCard = await resolver.resolve(baseUrl, path);
 
-      // Build transport list: main URL + additionalInterfaces
-      const mainTransport = agentCard.preferredTransport ?? "JSONRPC";
-      const allInterfaces: TransportEndpoint[] = [
-        { url: agentCard.url, transport: mainTransport },
-      ];
-
-      if (agentCard.additionalInterfaces) {
-        for (const iface of agentCard.additionalInterfaces) {
-          // Avoid duplicate of the main endpoint
-          if (iface.url !== agentCard.url || iface.transport !== mainTransport) {
-            allInterfaces.push({ url: iface.url, transport: iface.transport });
-          }
-        }
-      }
+      const interfaces = agentCard.supportedInterfaces ?? [];
+      const allInterfaces: TransportEndpoint[] = interfaces.map((iface) => ({
+        url: iface.url,
+        transport: iface.protocolBinding as TransportEndpoint["transport"],
+      }));
 
       // Bio-inspired: use adaptive transport ordering when we have stats
       // for this peer (pathway selection based on past performance).
@@ -401,7 +452,7 @@ export class A2AClient {
     factory: ClientFactory,
     baseUrl: string,
     path: string,
-    sendParams: MessageSendParams,
+    sendParams: SendMessageRequest,
     requestOptions: { serviceParameters?: Record<string, string> },
   ): Promise<OutboundSendResult> {
     try {
@@ -428,7 +479,7 @@ export class A2AClient {
   private async doSendViaTransport(
     peer: PeerConfig,
     endpoint: TransportEndpoint,
-    sendParams: MessageSendParams,
+    sendParams: SendMessageRequest,
     requestOptions: { serviceParameters?: Record<string, string> },
   ): Promise<OutboundSendResult> {
     const authFetch = this.createFetch(peer);

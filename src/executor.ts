@@ -4,9 +4,19 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-import type { Message, Part, Task } from "@a2a-js/sdk";
+import type { Part } from "@a2a-js/sdk";
+import { TaskState } from "@a2a-js/sdk";
 import type { AgentExecutor, ExecutionEventBus, RequestContext } from "@a2a-js/sdk/server";
 
+import {
+  agentMessage,
+  buildTask,
+  emptyPart,
+  publishTask,
+  publishTextArtifactChunk,
+  textPart,
+  urlPart,
+} from "./a2a/helpers.js";
 import type { GatewayConfig, OpenClawPluginApi } from "./types.js";
 import {
   validateMimeType,
@@ -46,6 +56,20 @@ const MAX_HISTORY_MESSAGES = 200;
 interface AgentResponse {
   text: string;
   mediaUrls: string[];
+}
+
+interface OpenAIStreamOptions {
+  eventBus: ExecutionEventBus;
+  taskId: string;
+  contextId: string;
+}
+
+function extractOpenAIStreamDelta(payload: unknown): string {
+  const body = asObject(payload);
+  const choices = asArray(body?.choices);
+  const firstChoice = asObject(choices[0]);
+  const delta = asObject(firstChoice?.delta);
+  return asString(delta?.content) ?? "";
 }
 
 function pickAgentId(requestContext: RequestContext, fallbackAgentId: string): string {
@@ -253,7 +277,20 @@ function extractTextFragments(value: unknown): string[] {
     return [];
   }
 
+  const partContent = asObject(obj.content);
+  if (partContent?.$case === "text" && typeof partContent.value === "string") {
+    const trimmed = partContent.value.trim();
+    return trimmed ? [trimmed] : [];
+  }
+  if (partContent?.$case === "url" && typeof partContent.value === "string") {
+    return [`[Attached: ${partContent.value}]`];
+  }
+
   if (obj.kind === "text" && typeof obj.text === "string") {
+    const trimmed = obj.text.trim();
+    return trimmed ? [trimmed] : [];
+  }
+  if (typeof obj.text === "string" && !obj.kind && !obj.content) {
     const trimmed = obj.text.trim();
     return trimmed ? [trimmed] : [];
   }
@@ -451,30 +488,24 @@ function buildResponseParts(response: AgentResponse): Part[] {
   const parts: Part[] = [];
 
   if (response.text) {
-    parts.push({ kind: "text", text: response.text });
+    parts.push(textPart(response.text));
   }
 
   for (const url of response.mediaUrls) {
-    parts.push({
-      kind: "file",
-      file: { uri: url },
-    });
+    parts.push(urlPart(url));
   }
 
   // Extract file URLs from text that are not already in mediaUrls
   if (response.text) {
     const textUrls = extractUrlsFromText(response.text, response.mediaUrls);
     for (const url of textUrls) {
-      parts.push({
-        kind: "file",
-        file: { uri: url },
-      });
+      parts.push(urlPart(url));
     }
   }
 
   // Ensure at least one part exists (A2A requires non-empty parts array)
   if (parts.length === 0) {
-    parts.push({ kind: "text", text: "" });
+    parts.push(emptyPart());
   }
 
   return parts;
@@ -1136,61 +1167,39 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       : rawHistory;
 
     // Publish initial "working" state so the task is trackable during async dispatch
-    const workingTask: Task = {
-      kind: "task",
-      id: taskId,
-      contextId,
-      status: {
-        state: "working",
-        timestamp: new Date().toISOString(),
-      },
-      history: existingHistory,
-    };
-    eventBus.publish(workingTask);
+    publishTask(
+      eventBus,
+      buildTask(taskId, contextId, TaskState.TASK_STATE_WORKING, { history: existingHistory }),
+    );
 
     // Validate inbound FileParts before dispatching to the agent
     const fileValidationError = this.validateInboundFileParts(requestContext.userMessage);
     if (fileValidationError) {
       this.api.logger.warn(`a2a-gateway: inbound file validation failed: ${fileValidationError}`);
-      const rejectedMessage: Message = {
-        kind: "message",
-        messageId: uuidv4(),
-        role: "agent",
-        parts: [{ kind: "text", text: `File validation failed: ${fileValidationError}` }],
-        contextId,
-      };
-      const rejectedTask: Task = {
-        kind: "task",
-        id: taskId,
-        contextId,
-        status: {
-          state: "failed",
-          message: rejectedMessage,
-          timestamp: new Date().toISOString(),
-        },
-        history: existingHistory,
-      };
-      eventBus.publish(rejectedTask);
+      const rejectedMessage = agentMessage(contextId, [
+        textPart(`File validation failed: ${fileValidationError}`),
+      ], taskId);
+      publishTask(
+        eventBus,
+        buildTask(taskId, contextId, TaskState.TASK_STATE_FAILED, {
+          statusMessage: rejectedMessage,
+          history: existingHistory,
+        }),
+      );
       eventBus.finished();
       return;
     }
 
     let agentResponse: AgentResponse;
+    let streamedViaOpenAI = false;
 
     // Emit periodic heartbeat events while the agent is working.
     // This keeps SSE connections alive and signals that the task is still in progress.
     const heartbeat = setInterval(() => {
-      const heartbeatTask: Task = {
-        kind: "task",
-        id: taskId,
-        contextId,
-        status: {
-          state: "working",
-          timestamp: new Date().toISOString(),
-        },
-        history: existingHistory,
-      };
-      eventBus.publish(heartbeatTask);
+      publishTask(
+        eventBus,
+        buildTask(taskId, contextId, TaskState.TASK_STATE_WORKING, { history: existingHistory }),
+      );
     }, STREAMING_HEARTBEAT_INTERVAL_MS);
 
     try {
@@ -1206,7 +1215,9 @@ export class OpenClawAgentExecutor implements AgentExecutor {
           requestContext.userMessage,
           contextId,
           validatedModelRef,
+          { eventBus, taskId, contextId },
         );
+        streamedViaOpenAI = true;
       } else {
         agentResponse = await this.dispatchViaGatewayRpc(agentId, requestContext.userMessage, contextId);
       }
@@ -1218,63 +1229,48 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       await this.tryHooksWakeFallback(agentId, taskId, contextId, requestContext.userMessage);
 
       // Return failed task status so the caller knows dispatch did not succeed.
-      const failedMessage: Message = {
-        kind: "message",
-        messageId: uuidv4(),
-        role: "agent",
-        parts: [{ kind: "text", text: `Agent dispatch failed: ${errorMessage}` }],
-        contextId,
-      };
+      const failedMessage = agentMessage(contextId, [
+        textPart(`Agent dispatch failed: ${errorMessage}`),
+      ], taskId);
 
-      const failedTask: Task = {
-        kind: "task",
-        id: taskId,
-        contextId,
-        status: {
-          state: "failed",
-          message: failedMessage,
-          timestamp: new Date().toISOString(),
-        },
-        history: existingHistory,
-      };
-
-      eventBus.publish(failedTask);
+      publishTask(
+        eventBus,
+        buildTask(taskId, contextId, TaskState.TASK_STATE_FAILED, {
+          statusMessage: failedMessage,
+          history: existingHistory,
+        }),
+      );
       eventBus.finished();
       return;
     }
 
     clearInterval(heartbeat);
 
+    if (!streamedViaOpenAI && agentResponse.text) {
+      publishTextArtifactChunk(eventBus, taskId, contextId, agentResponse.text, false);
+    }
+
     // Publish completed Task with artifact (text + optional file parts)
     const responseParts = buildResponseParts(agentResponse);
+    const responseMessage = agentMessage(contextId, responseParts, taskId);
 
-    const responseMessage: Message = {
-      kind: "message",
-      messageId: uuidv4(),
-      role: "agent",
-      parts: responseParts,
-      contextId,
-    };
-
-    const completedTask: Task = {
-      kind: "task",
-      id: taskId,
-      contextId,
-      status: {
-        state: "completed",
-        message: responseMessage,
-        timestamp: new Date().toISOString(),
-      },
-      history: existingHistory,
-      artifacts: [
-        {
-          artifactId: uuidv4(),
-          parts: responseParts,
-        },
-      ],
-    };
-
-    eventBus.publish(completedTask);
+    publishTask(
+      eventBus,
+      buildTask(taskId, contextId, TaskState.TASK_STATE_COMPLETED, {
+        statusMessage: responseMessage,
+        history: existingHistory,
+        artifacts: [
+          {
+            artifactId: uuidv4(),
+            name: "agent-response",
+            description: "",
+            parts: responseParts,
+            metadata: undefined,
+            extensions: [],
+          },
+        ],
+      }),
+    );
     eventBus.finished();
   }
 
@@ -1292,16 +1288,10 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       return;
     }
 
-    const canceledTask: Task = {
-      kind: "task",
-      id: taskId,
-      contextId,
-      status: {
-        state: "canceled",
-        timestamp: new Date().toISOString(),
-      },
-    };
-    eventBus.publish(canceledTask);
+    publishTask(
+      eventBus,
+      buildTask(taskId, contextId, TaskState.TASK_STATE_CANCELED),
+    );
     this.taskContextByTaskId.delete(taskId);
     eventBus.finished();
   }
@@ -1326,6 +1316,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
     userMessage: unknown,
     contextId: string,
     modelOverride: string,
+    streamOptions?: OpenAIStreamOptions,
   ): Promise<AgentResponse> {
     const messageText = extractInboundMessageText(userMessage);
     const gatewayConfig = this.resolveGatewayRuntimeConfig();
@@ -1349,10 +1340,11 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       headers.authorization = `Bearer ${gatewayConfig.gatewayPassword}`;
     }
 
+    const useStream = streamOptions != null;
     const payload = {
       model: targetModel,
       user: sessionKey,
-      stream: false,
+      stream: useStream,
       messages: [{ role: "user", content: messageText }],
     };
 
@@ -1363,12 +1355,17 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       signal: AbortSignal.timeout(this.openAIRequestTimeoutMs),
     });
 
-    const textBody = await response.text();
     if (!response.ok) {
+      const textBody = await response.text();
       const bodyPreview = textBody.length > 500 ? `${textBody.slice(0, 500)}...` : textBody;
       throw new Error(`OpenAI HTTP dispatch failed (${response.status}): ${bodyPreview}`);
     }
 
+    if (useStream && streamOptions && response.body) {
+      return this.readOpenAIStreamResponse(response.body, streamOptions);
+    }
+
+    const textBody = await response.text();
     let parsed: unknown;
     try {
       parsed = textBody ? JSON.parse(textBody) : {};
@@ -1381,6 +1378,62 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       throw new Error("OpenAI HTTP dispatch returned empty assistant response");
     }
     return { text: responseText, mediaUrls: [] };
+  }
+
+  private async readOpenAIStreamResponse(
+    body: ReadableStream<Uint8Array>,
+    streamOptions: OpenAIStreamOptions,
+  ): Promise<AgentResponse> {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let fullText = "";
+    let chunkIndex = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) {
+          continue;
+        }
+        const data = trimmed.slice(5).trim();
+        if (!data || data === "[DONE]") {
+          continue;
+        }
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(data);
+        } catch {
+          continue;
+        }
+        const delta = extractOpenAIStreamDelta(parsed);
+        if (!delta) {
+          continue;
+        }
+        fullText += delta;
+        publishTextArtifactChunk(
+          streamOptions.eventBus,
+          streamOptions.taskId,
+          streamOptions.contextId,
+          delta,
+          chunkIndex > 0,
+        );
+        chunkIndex += 1;
+      }
+    }
+
+    if (!fullText) {
+      throw new Error("OpenAI HTTP stream returned empty assistant response");
+    }
+    return { text: fullText, mediaUrls: [] };
   }
 
   private async dispatchViaGatewayRpc(
@@ -1483,12 +1536,10 @@ export class OpenClawAgentExecutor implements AgentExecutor {
     if (parts.length === 0) return null;
 
     for (const part of parts) {
-      const file = asObject(part.file);
-      if (!file) continue;
-
-      const uri = asString(file.uri);
-      const mimeType = asString(file.mimeType);
-      const bytes = asString(file.bytes);
+      const legacyFile = asObject(part.file);
+      const uri = asString(part.uri) || asString(legacyFile?.uri);
+      const mimeType = asString(part.mimeType) || asString(legacyFile?.mimeType);
+      const bytes = asString(part.bytes) || asString(legacyFile?.bytes);
 
       // URI-based file: scheme + IP literal check + MIME
       if (uri) {
@@ -1522,18 +1573,27 @@ export class OpenClawAgentExecutor implements AgentExecutor {
     if (!value || typeof value !== "object") return results;
 
     const obj = value as Record<string, unknown>;
-    if (obj.kind === "file" && obj.file) {
-      results.push(obj);
-      return results;
-    }
-
-    const parts = Array.isArray(obj.parts) ? obj.parts : [];
+    const parts = Array.isArray(obj.parts) ? obj.parts : obj.kind === "file" && obj.file ? [obj] : [];
     for (const p of parts) {
-      if (p && typeof p === "object") {
-        const part = p as Record<string, unknown>;
-        if (part.kind === "file" && part.file) {
-          results.push(part);
-        }
+      if (!p || typeof p !== "object") {
+        continue;
+      }
+      const part = p as Record<string, unknown>;
+      const content = asObject(part.content);
+      if (content?.$case === "url" && typeof content.value === "string") {
+        results.push({ uri: content.value, mimeType: asString(part.mediaType) || asString(part.mimeType) });
+        continue;
+      }
+      if (content?.$case === "raw") {
+        results.push({ bytes: content.value, mimeType: asString(part.mediaType) || asString(part.mimeType) });
+        continue;
+      }
+      if (typeof part.url === "string") {
+        results.push({ uri: part.url, mimeType: asString(part.mediaType) || asString(part.mimeType) });
+        continue;
+      }
+      if (part.kind === "file" && part.file) {
+        results.push(part);
       }
     }
 

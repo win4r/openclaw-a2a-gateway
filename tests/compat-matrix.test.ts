@@ -16,6 +16,8 @@ import { OpenClawAgentExecutor } from "../src/executor.js";
 import type { GatewayConfig } from "../src/types.js";
 
 import {
+  assertPrimaryAgentUrl,
+  assertPrimaryProtocolVersion,
   createApi,
   createHarness,
   createMockWebSocketClass,
@@ -23,6 +25,7 @@ import {
   makeConfig,
   registerPlugin,
   silentLogger,
+  TaskState,
 } from "./helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -40,7 +43,7 @@ describe("compat: Agent Card parsing variations", () => {
       if (url.includes(".well-known/agent-card.json") || url.includes(".well-known/agent.json")) {
         return new Response(
           JSON.stringify({
-            protocolVersion: "0.3.0",
+            protocolVersion: "1.0",
             name: "Minimal Agent",
             url: "http://mock-minimal/a2a/jsonrpc",
             skills: [{ id: "s1", name: "echo", description: "Echo skill", tags: [] }],
@@ -90,7 +93,7 @@ describe("compat: Agent Card parsing variations", () => {
       if (url.includes(".well-known/agent-card.json") || url.includes(".well-known/agent.json")) {
         return new Response(
           JSON.stringify({
-            protocolVersion: "0.3.0",
+            protocolVersion: "1.0",
             name: "Extended Agent",
             url: "http://mock-extended/a2a/jsonrpc",
             skills: [{ id: "s1", name: "chat", description: "Chat", tags: ["general"] }],
@@ -153,7 +156,7 @@ describe("compat: Agent Card parsing variations", () => {
       if (url.includes(".well-known/agent-card.json") || url.includes(".well-known/agent.json")) {
         return new Response(
           JSON.stringify({
-            protocolVersion: "0.3.0",
+            protocolVersion: "1.0",
             name: "Multi-Skill Agent",
             url: "http://mock-skills/a2a/jsonrpc",
             skills: [
@@ -209,7 +212,7 @@ describe("compat: Agent Card parsing variations", () => {
         // Some lightweight implementations may omit everything else.
         return new Response(
           JSON.stringify({
-            protocolVersion: "0.3.0",
+            protocolVersion: "1.0",
             name: "Bare Agent",
             url: "http://mock-bare/a2a/jsonrpc",
             skills: [],
@@ -302,7 +305,7 @@ describe("compat: Agent Card parsing variations", () => {
   it("buildAgentCard produces valid card regardless of config completeness", () => {
     // Empty config — all defaults
     const defaultCard = buildAgentCard({} as unknown as GatewayConfig) as Record<string, unknown>;
-    assert.equal(defaultCard.protocolVersion, "0.3.0");
+    assertPrimaryProtocolVersion(defaultCard);
     assert.ok(defaultCard.name, "should have a name");
     assert.ok(defaultCard.url, "should have a url");
     assert.ok(Array.isArray(defaultCard.skills), "should have skills array");
@@ -312,7 +315,7 @@ describe("compat: Agent Card parsing variations", () => {
       makeConfig({ agentCard: { name: "PartialBot" } }) as unknown as GatewayConfig,
     ) as Record<string, unknown>;
     assert.equal(partialCard.name, "PartialBot");
-    assert.equal(partialCard.protocolVersion, "0.3.0");
+    assertPrimaryProtocolVersion(partialCard);
 
     // Full config
     const fullCard = buildAgentCard(
@@ -361,8 +364,8 @@ describe("compat: inbound message format variations", () => {
           contextId: "ctx-text-only",
           userMessage: {
             messageId: "msg-text-only",
-            role: "user",
-            parts: [{ kind: "text", text: "simple text message" }],
+            role: "ROLE_USER",
+            parts: [{ text: "simple text message" }],
           },
         } as any,
         { publish() {}, finished() {} } as any,
@@ -394,9 +397,9 @@ describe("compat: inbound message format variations", () => {
           contextId: "ctx-mixed",
           userMessage: {
             messageId: "msg-mixed",
-            role: "user",
+            role: "ROLE_USER",
             parts: [
-              { kind: "text", text: "Check this data and file" },
+              { text: "Check this data and file" },
               {
                 kind: "file",
                 file: {
@@ -447,7 +450,7 @@ describe("compat: inbound message format variations", () => {
           contextId: "ctx-empty-parts",
           userMessage: {
             messageId: "msg-empty-parts",
-            role: "user",
+            role: "ROLE_USER",
             parts: [],
           },
         } as any,
@@ -484,7 +487,7 @@ describe("compat: inbound message format variations", () => {
           contextId: "ctx-extra-fields",
           userMessage: {
             messageId: "msg-extra-fields",
-            role: "user",
+            role: "ROLE_USER",
             parts: [
               {
                 kind: "text",
@@ -528,7 +531,7 @@ describe("compat: inbound message format variations", () => {
           userMessage: {
             messageId: "msg-no-role",
             // Deliberately omit `role`
-            parts: [{ kind: "text", text: "no role specified" }],
+            parts: [{ text: "no role specified" }],
           },
         } as any,
         {
@@ -558,7 +561,7 @@ describe("compat: response format variations", () => {
       if (url.includes(".well-known/agent-card.json") || url.includes(".well-known/agent.json")) {
         return new Response(
           JSON.stringify({
-            protocolVersion: "0.3.0",
+            protocolVersion: "1.0",
             name: "Standard Server",
             url: "http://mock-standard/a2a/jsonrpc",
             skills: [{ id: "s1", name: "chat", description: "Chat", tags: [] }],
@@ -575,11 +578,10 @@ describe("compat: response format variations", () => {
             jsonrpc: "2.0",
             id: body.id,
             result: {
-              kind: "task",
-              id: "task-123",
+                            id: "task-123",
               contextId: "ctx-123",
-              status: { state: "completed", message: { role: "agent", parts: [{ kind: "text", text: "Done" }] } },
-              artifacts: [{ parts: [{ kind: "text", text: "Result artifact" }] }],
+              status: { state: TaskState.TASK_STATE_COMPLETED, message: { role: "ROLE_AGENT", parts: [{ text: "Done" }] } },
+              artifacts: [{ parts: [{ text: "Result artifact" }] }],
             },
           }),
           { status: 200, headers: { "content-type": "application/json" } },
@@ -617,7 +619,7 @@ describe("compat: response format variations", () => {
       if (url.includes(".well-known/agent-card.json") || url.includes(".well-known/agent.json")) {
         return new Response(
           JSON.stringify({
-            protocolVersion: "0.3.0",
+            protocolVersion: "1.0",
             name: "Error Server",
             url: "http://mock-error/a2a/jsonrpc",
             skills: [],
@@ -670,7 +672,7 @@ describe("compat: response format variations", () => {
       if (url.includes(".well-known/agent-card.json") || url.includes(".well-known/agent.json")) {
         return new Response(
           JSON.stringify({
-            protocolVersion: "0.3.0",
+            protocolVersion: "1.0",
             name: "Custom Error Server",
             url: "http://mock-custom-err/a2a/jsonrpc",
             skills: [],
@@ -722,7 +724,7 @@ describe("compat: response format variations", () => {
     const api = createApi();
 
     const MockWS = createMockWebSocketClass({
-      agentResponsePayloads: [{ kind: "text", text: "Standard text reply" }],
+      agentResponsePayloads: [{ text: "Standard text reply" }],
     });
 
     const originalWebSocket = (globalThis as any).WebSocket;
@@ -738,8 +740,8 @@ describe("compat: response format variations", () => {
           contextId: "ctx-std-resp",
           userMessage: {
             messageId: "msg-std-resp",
-            role: "user",
-            parts: [{ kind: "text", text: "reply test" }],
+            role: "ROLE_USER",
+            parts: [{ text: "reply test" }],
           },
         } as any,
         {
@@ -787,8 +789,8 @@ describe("compat: response format variations", () => {
           contextId: "ctx-mixed-resp",
           userMessage: {
             messageId: "msg-mixed-resp",
-            role: "user",
-            parts: [{ kind: "text", text: "generate mixed content" }],
+            role: "ROLE_USER",
+            parts: [{ text: "generate mixed content" }],
           },
         } as any,
         {
@@ -834,7 +836,7 @@ describe("compat: transport header variations", () => {
         }
         return new Response(
           JSON.stringify({
-            protocolVersion: "0.3.0",
+            protocolVersion: "1.0",
             name: "Auth Test Server",
             url: "http://mock-auth/a2a/jsonrpc",
             skills: [],
@@ -899,7 +901,7 @@ describe("compat: transport header variations", () => {
       if (url.includes(".well-known/agent-card.json") || url.includes(".well-known/agent.json")) {
         return new Response(
           JSON.stringify({
-            protocolVersion: "0.3.0",
+            protocolVersion: "1.0",
             name: "ApiKey Test Server",
             url: "http://mock-apikey/a2a/jsonrpc",
             skills: [],
@@ -985,7 +987,7 @@ describe("compat: transport header variations", () => {
           id: "test-1",
           method: "message/send",
           params: {
-            message: { messageId: "m1", role: "user", parts: [{ kind: "text", text: "no auth" }] },
+            message: { messageId: "m1", role: "ROLE_USER", parts: [{ text: "no auth" }] },
           },
         }),
         signal: AbortSignal.timeout(5_000),
@@ -1006,7 +1008,7 @@ describe("compat: transport header variations", () => {
           id: "test-2",
           method: "message/send",
           params: {
-            message: { messageId: "m2", role: "user", parts: [{ kind: "text", text: "with auth" }] },
+            message: { messageId: "m2", role: "ROLE_USER", parts: [{ text: "with auth" }] },
           },
         }),
         signal: AbortSignal.timeout(30_000),
@@ -1061,7 +1063,7 @@ describe("compat: transport header variations", () => {
           id: "test-raw",
           method: "message/send",
           params: {
-            message: { messageId: "m-raw", role: "user", parts: [{ kind: "text", text: "raw token" }] },
+            message: { messageId: "m-raw", role: "ROLE_USER", parts: [{ text: "raw token" }] },
           },
         }),
         signal: AbortSignal.timeout(5_000),

@@ -11,10 +11,9 @@ describe("normalizeAgentNameFromMetadata", () => {
       method: "message/stream",
       params: {
         message: {
-          kind: "message",
-          messageId: "msg-1",
-          role: "user",
-          parts: [{ kind: "text", text: "hi" }],
+                    messageId: "msg-1",
+          role: "ROLE_USER",
+          parts: [{ text: "hi" }],
         },
         metadata: {
           agentName: "main",
@@ -36,11 +35,10 @@ describe("normalizeAgentNameFromMetadata", () => {
       method: "message/send",
       params: {
         message: {
-          kind: "message",
-          messageId: "msg-1",
-          role: "user",
+                    messageId: "msg-1",
+          role: "ROLE_USER",
           agentName: "coder",
-          parts: [{ kind: "text", text: "hi" }],
+          parts: [{ text: "hi" }],
         },
         metadata: {
           agentName: "main",
@@ -62,10 +60,9 @@ describe("normalizeAgentNameFromMetadata", () => {
       method: "message/stream",
       params: {
         message: {
-          kind: "message",
-          messageId: "msg-1",
-          role: "user",
-          parts: [{ kind: "text", text: "hi" }],
+                    messageId: "msg-1",
+          role: "ROLE_USER",
+          parts: [{ text: "hi" }],
         },
         metadata: {
           llm: {

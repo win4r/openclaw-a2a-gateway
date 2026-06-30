@@ -890,15 +890,12 @@ const plugin = {
 
           const parts: Array<Record<string, unknown>> = [];
           if (params.text) {
-            parts.push({ kind: "text", text: params.text });
+            parts.push({ text: params.text });
           }
           parts.push({
-            kind: "file",
-            file: {
-              uri: params.uri,
-              ...(params.name ? { name: params.name } : {}),
-              ...(params.mimeType ? { mimeType: params.mimeType } : {}),
-            },
+            url: params.uri,
+            ...(params.name ? { filename: params.name } : {}),
+            ...(params.mimeType ? { mediaType: params.mimeType } : {}),
           });
 
           try {

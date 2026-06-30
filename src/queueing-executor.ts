@@ -1,13 +1,20 @@
-import { v4 as uuidv4 } from "uuid";
-
-import type { Message, Task } from "@a2a-js/sdk";
+import type { Message, TaskStatus } from "@a2a-js/sdk";
+import { TaskState } from "@a2a-js/sdk";
 import type {
   AgentExecutionEvent,
   AgentExecutor,
   ExecutionEventBus,
   RequestContext,
 } from "@a2a-js/sdk/server";
+import { AgentEvent } from "@a2a-js/sdk/server";
 
+import {
+  agentMessage,
+  buildTask,
+  partText,
+  terminalStateLabel,
+  textPart,
+} from "./a2a/helpers.js";
 import { GatewayTelemetry } from "./telemetry.js";
 import { computeSaturationDelay, type SaturationConfig } from "./saturation-model.js";
 
@@ -27,32 +34,21 @@ interface QueuedTaskEntry {
 
 type TerminalTaskState = "completed" | "failed" | "canceled" | "rejected";
 
-function statusMessage(contextId: string, text: string): Message {
-  return {
-    kind: "message",
-    messageId: uuidv4(),
-    role: "agent",
-    contextId,
-    parts: [{ kind: "text", text }],
-  };
+function statusMessage(contextId: string, text: string, taskId = ""): Message {
+  return agentMessage(contextId, [textPart(text)], taskId);
 }
 
 function taskEvent(
   taskId: string,
   contextId: string,
-  state: Task["status"]["state"],
+  state: TaskState,
   text?: string,
-): Task {
-  return {
-    kind: "task",
-    id: taskId,
-    contextId,
-    status: {
-      state,
-      message: text ? statusMessage(contextId, text) : undefined,
-      timestamp: new Date().toISOString(),
-    },
-  };
+): AgentExecutionEvent {
+  return AgentEvent.task(
+    buildTask(taskId, contextId, state, {
+      statusMessage: text ? statusMessage(contextId, text, taskId) : undefined,
+    }),
+  );
 }
 
 function createObservedEventBus(
@@ -86,6 +82,16 @@ function createObservedEventBus(
   };
 
   return wrapped;
+}
+
+function resolveTerminalStatus(event: AgentExecutionEvent): TaskStatus | undefined {
+  if (event.kind === "task") {
+    return event.data.status;
+  }
+  if (event.kind === "statusUpdate") {
+    return event.data.status;
+  }
+  return undefined;
 }
 
 export class QueueingAgentExecutor implements AgentExecutor {
@@ -134,7 +140,7 @@ export class QueueingAgentExecutor implements AgentExecutor {
           taskEvent(
             requestContext.taskId,
             requestContext.contextId,
-            "rejected",
+            TaskState.TASK_STATE_REJECTED,
             "Gateway is overloaded; queue limit reached",
           ),
         );
@@ -154,7 +160,7 @@ export class QueueingAgentExecutor implements AgentExecutor {
         taskEvent(
           requestContext.taskId,
           requestContext.contextId,
-          "submitted",
+          TaskState.TASK_STATE_SUBMITTED,
           `Queued for execution (position ${this.queue.length})`,
         ),
       );
@@ -168,7 +174,7 @@ export class QueueingAgentExecutor implements AgentExecutor {
       if (entry) {
         this.pendingByTaskId.delete(taskId);
         entry.eventBus.publish(
-          taskEvent(taskId, entry.requestContext.contextId, "canceled", "Task canceled while queued"),
+          taskEvent(taskId, entry.requestContext.contextId, TaskState.TASK_STATE_CANCELED, "Task canceled while queued"),
         );
         entry.eventBus.finished();
         entry.resolve();
@@ -218,23 +224,17 @@ export class QueueingAgentExecutor implements AgentExecutor {
     );
 
     const observedBus = createObservedEventBus(entry.eventBus, (event) => {
-      const status = event.kind === "task" || event.kind === "status-update" ? event.status : undefined;
+      const status = resolveTerminalStatus(event);
       if (!status) {
         return;
       }
-      if (
-        status.state === "completed" ||
-        status.state === "failed" ||
-        status.state === "canceled" ||
-        status.state === "rejected"
-      ) {
-        finalState = status.state;
-        if (status.state !== "completed") {
-          finalErrorMessage =
-            typeof status.message?.parts?.[0] === "object" && status.message.parts[0]?.kind === "text"
-              ? status.message.parts[0].text
-              : finalErrorMessage;
-        }
+      const label = terminalStateLabel(status.state);
+      if (!label) {
+        return;
+      }
+      finalState = label;
+      if (label !== "completed") {
+        finalErrorMessage = partText(status.message?.parts?.[0]) ?? finalErrorMessage;
       }
     });
 

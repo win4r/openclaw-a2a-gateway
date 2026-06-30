@@ -1,4 +1,5 @@
-import type { AgentCard, AgentSkill } from "@a2a-js/sdk";
+import type { AgentCard, AgentInterface, AgentSkill } from "@a2a-js/sdk";
+import { A2A_PROTOCOL_VERSION } from "@a2a-js/sdk";
 
 import type { GatewayConfig } from "./types.js";
 
@@ -9,6 +10,10 @@ function toSkill(entry: string | { id?: string; name: string; description?: stri
       name: entry,
       description: entry,
       tags: [],
+      examples: [],
+      inputModes: [],
+      outputModes: [],
+      securityRequirements: [],
     };
   }
 
@@ -17,6 +22,19 @@ function toSkill(entry: string | { id?: string; name: string; description?: stri
     name: entry.name,
     description: entry.description || entry.name,
     tags: [],
+    examples: [],
+    inputModes: [],
+    outputModes: [],
+    securityRequirements: [],
+  };
+}
+
+function agentInterface(url: string, protocolBinding: AgentInterface["protocolBinding"]): AgentInterface {
+  return {
+    url,
+    protocolBinding,
+    tenant: "",
+    protocolVersion: A2A_PROTOCOL_VERSION,
   };
 }
 
@@ -27,16 +45,19 @@ export function buildAgentCard(config: GatewayConfig): AgentCard {
   const fallbackHost = server.host === "0.0.0.0" ? "localhost" : server.host;
   const fallbackUrl = `http://${fallbackHost}:${server.port}/a2a/jsonrpc`;
 
+  const jsonRpcUrl = configuredUrl || fallbackUrl;
+  const origin = new URL(jsonRpcUrl).origin;
+
   const securitySchemes: AgentCard["securitySchemes"] = {};
-  const security: AgentCard["security"] = [];
+  const securityRequirements: AgentCard["securityRequirements"] = [];
 
   const security_ = config.security || { inboundAuth: "none", token: "" };
   if (security_.inboundAuth === "bearer") {
-    securitySchemes["bearer"] = {
+    securitySchemes.bearer = {
       type: "http",
       scheme: "bearer",
     };
-    security.push({ bearer: [] });
+    securityRequirements.push({ bearer: [] });
   }
 
   const grpcPort = server.port + 1;
@@ -45,26 +66,36 @@ export function buildAgentCard(config: GatewayConfig): AgentCard {
     : server.host;
 
   return {
-    protocolVersion: "0.3.0",
-    version: "1.0.0",
     name: agentCard.name || "OpenClaw A2A Gateway",
     description: agentCard.description || "A2A bridge for OpenClaw agents",
-    url: configuredUrl || fallbackUrl,
-    skills: (agentCard.skills || []).map((entry, index) => toSkill(entry, index)),
+    version: "1.0.0",
+    supportedInterfaces: [
+      agentInterface(jsonRpcUrl, "JSONRPC"),
+      agentInterface(`${origin}/a2a/rest`, "HTTP+JSON"),
+      agentInterface(`${grpcHost}:${grpcPort}`, "GRPC"),
+    ],
+    provider: undefined,
     capabilities: {
       streaming: true,
       pushNotifications: false,
-      stateTransitionHistory: false,
+      extensions: [],
+      extendedAgentCard: false,
     },
     securitySchemes,
-    security,
-    supportsAuthenticatedExtendedCard: false,
+    securityRequirements,
     defaultInputModes: ["text"],
     defaultOutputModes: ["text"],
-    additionalInterfaces: [
-      { url: configuredUrl || fallbackUrl, transport: "JSONRPC" },
-      { url: `${new URL(configuredUrl || fallbackUrl).origin}/a2a/rest`, transport: "HTTP+JSON" },
-      { url: `${grpcHost}:${grpcPort}`, transport: "GRPC" },
-    ],
+    skills: (agentCard.skills || []).map((entry, index) => toSkill(entry, index)),
+    signatures: [],
   };
+}
+
+/** Primary JSON-RPC endpoint URL from a v1 Agent Card. */
+export function primaryAgentUrl(card: AgentCard): string {
+  return card.supportedInterfaces[0]?.url ?? "";
+}
+
+/** Protocol version exposed on the primary interface. */
+export function primaryProtocolVersion(card: AgentCard): string {
+  return card.supportedInterfaces[0]?.protocolVersion ?? "";
 }

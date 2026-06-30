@@ -7,13 +7,21 @@ import { OpenClawAgentExecutor } from "../src/executor.js";
 import type { GatewayConfig } from "../src/types.js";
 
 import {
+  assertPrimaryProtocolVersion,
   createApi,
   createHarness,
   createMockWebSocketClass,
+  executionTaskState,
   invokeGatewayMethod,
+  isTextPart,
+  isUrlPart,
+  lastPublishedTask,
   makeConfig,
+  partTextFromJson,
   registerPlugin,
   silentLogger,
+  TaskState,
+  unwrapPublishedTask,
 } from "./helpers.js";
 
 describe("zero-config install (issue #7)", () => {
@@ -33,7 +41,7 @@ describe("zero-config install (issue #7)", () => {
     });
     const card = buildAgentCard(minimalConfig as unknown as GatewayConfig) as Record<string, unknown>;
     assert.equal(card.name, "OpenClaw A2A Gateway", "should use default name");
-    assert.equal(card.protocolVersion, "0.3.0");
+    assertPrimaryProtocolVersion(card);
     assert.equal(card.description, "A2A bridge for OpenClaw agents");
   });
 });
@@ -64,9 +72,9 @@ describe("session key format (PR #9, issue #8)", () => {
           contextId: "ctx-sk",
           userMessage: {
             messageId: "msg-sk",
-            role: "user",
+            role: "ROLE_USER",
             agentId: "writer-agent",
-            parts: [{ kind: "text", text: "test session key" }],
+            parts: [{ text: "test session key" }],
           },
         } as any,
         {
@@ -105,7 +113,7 @@ describe("session key format (PR #9, issue #8)", () => {
 describe("a2a-gateway plugin", () => {
   it("builds an Agent Card with protocolVersion 0.3.0 and required fields", async () => {
     const payload = buildAgentCard(makeConfig() as unknown as GatewayConfig) as Record<string, unknown>;
-    assert.equal(payload.protocolVersion, "0.3.0");
+    assertPrimaryProtocolVersion(payload);
     assert.equal(payload.name, "Test Agent");
 
     // Verify spec-required fields
@@ -137,9 +145,9 @@ describe("a2a-gateway plugin", () => {
           contextId: "ctx-1",
           userMessage: {
             messageId: "msg-1",
-            role: "user",
+            role: "ROLE_USER",
             agentId: "writer-agent",
-            parts: [{ kind: "text", text: "hello" }],
+            parts: [{ text: "hello" }],
           },
         } as any,
         {
@@ -156,11 +164,11 @@ describe("a2a-gateway plugin", () => {
       assert.equal(true, true);
       assert.equal(finishedCalled, true);
 
-      const finalTask = published[published.length - 1] as Record<string, unknown>;
+      const finalTask = lastPublishedTask(published);
       const status = finalTask.status as Record<string, unknown>;
       const message = status.message as Record<string, unknown>;
       const parts = message.parts as Array<Record<string, unknown>>;
-      assert.equal(parts[0].text, "Gateway response");
+      assert.equal(partTextFromJson(parts[0]), "Gateway response");
     } finally {
       (globalThis as any).WebSocket = originalWebSocket;
     }
@@ -215,7 +223,7 @@ describe("a2a-gateway plugin", () => {
           contextId: "ctx-override-1",
           userMessage: {
             messageId: "msg-override-1",
-            role: "user",
+            role: "ROLE_USER",
             agentId: "writer-agent",
             metadata: {
               llm: {
@@ -224,7 +232,7 @@ describe("a2a-gateway plugin", () => {
                 },
               },
             },
-            parts: [{ kind: "text", text: "hello override" }],
+            parts: [{ text: "hello override" }],
           },
         } as any,
         {
@@ -243,11 +251,11 @@ describe("a2a-gateway plugin", () => {
       assert.equal(capturedHeaderSession, "agent:writer-agent:a2a:ctx-override-1");
       assert.equal(capturedBodyModel, "openclaw/writer-agent");
 
-      const finalTask = published[published.length - 1] as Record<string, unknown>;
+      const finalTask = lastPublishedTask(published);
       const status = finalTask.status as Record<string, unknown>;
       const message = status.message as Record<string, unknown>;
       const parts = message.parts as Array<Record<string, unknown>>;
-      assert.equal(parts[0].text, "from openai http path");
+      assert.equal(partTextFromJson(parts[0]), "from openai http path");
     } finally {
       globalThis.fetch = originalFetch;
       (globalThis as any).WebSocket = originalWebSocket;
@@ -284,7 +292,7 @@ describe("a2a-gateway plugin", () => {
           contextId: "ctx-invalid-model",
           userMessage: {
             messageId: "msg-invalid-model",
-            role: "user",
+            role: "ROLE_USER",
             agentId: "writer-agent",
             metadata: {
               llm: {
@@ -293,7 +301,7 @@ describe("a2a-gateway plugin", () => {
                 },
               },
             },
-            parts: [{ kind: "text", text: "hello" }],
+            parts: [{ text: "hello" }],
           },
         } as any,
         {
@@ -305,12 +313,12 @@ describe("a2a-gateway plugin", () => {
       );
 
       assert.equal(fetchCalled, false);
-      const finalTask = published[published.length - 1] as Record<string, unknown>;
+      const finalTask = lastPublishedTask(published);
       const status = finalTask.status as Record<string, unknown>;
-      assert.equal(status.state, "failed");
+      assert.equal(status.state, TaskState.TASK_STATE_FAILED);
       const message = status.message as Record<string, unknown>;
       const parts = message.parts as Array<Record<string, unknown>>;
-      assert.match(String(parts[0].text || ""), /model override is invalid/i);
+      assert.match(String(partTextFromJson(parts[0]) || ""), /model override is invalid/i);
     } finally {
       globalThis.fetch = originalFetch;
       (globalThis as any).WebSocket = originalWebSocket;
@@ -334,9 +342,9 @@ describe("a2a-gateway plugin", () => {
           contextId: "ctx-1",
           userMessage: {
             messageId: "msg-1",
-            role: "user",
+            role: "ROLE_USER",
             agentId: "writer-agent",
-            parts: [{ kind: "text", text: "hello" }],
+            parts: [{ text: "hello" }],
           },
         } as any,
         {
@@ -351,11 +359,11 @@ describe("a2a-gateway plugin", () => {
 
       assert.equal(finishedCalled, true);
 
-      const finalTask = published[published.length - 1] as Record<string, unknown>;
-      assert.equal(finalTask.kind, "task");
+      const finalTask = lastPublishedTask(published);
+      
       const status = finalTask.status as Record<string, unknown>;
       // When WebSocket is unavailable, executor publishes a failed state
-      assert.equal(status.state, "failed");
+      assert.equal(status.state, TaskState.TASK_STATE_FAILED);
     } finally {
       (globalThis as any).WebSocket = originalWebSocket;
     }
@@ -381,8 +389,8 @@ describe("a2a-gateway plugin", () => {
 
     assert.equal(finishedCalled, true);
     assert.equal(published.length, 1);
-    assert.equal(published[0].id, "task-1");
-    assert.equal(published[0].contextId, "ctx-1");
+    assert.equal(unwrapPublishedTask(published[0]).id, "task-1");
+    assert.equal(unwrapPublishedTask(published[0]).contextId, "ctx-1");
   });
 
   it("inbound FilePart (URI) is formatted as text for the agent", async () => {
@@ -408,9 +416,9 @@ describe("a2a-gateway plugin", () => {
           contextId: "ctx-fp-1",
           userMessage: {
             messageId: "msg-fp-1",
-            role: "user",
+            role: "ROLE_USER",
             parts: [
-              { kind: "text", text: "Check this image" },
+              { text: "Check this image" },
               {
                 kind: "file",
                 file: {
@@ -469,7 +477,7 @@ describe("a2a-gateway plugin", () => {
           contextId: "ctx-sanitize",
           userMessage: {
             messageId: "msg-sanitize",
-            role: "user",
+            role: "ROLE_USER",
             parts: [
               {
                 kind: "file",
@@ -529,7 +537,7 @@ describe("a2a-gateway plugin", () => {
           contextId: "ctx-fp-2",
           userMessage: {
             messageId: "msg-fp-2",
-            role: "user",
+            role: "ROLE_USER",
             parts: [
               {
                 kind: "file",
@@ -585,7 +593,7 @@ describe("a2a-gateway plugin", () => {
           contextId: "ctx-data-1",
           userMessage: {
             messageId: "msg-data-1",
-            role: "user",
+            role: "ROLE_USER",
             parts: [
               {
                 kind: "data",
@@ -642,7 +650,7 @@ describe("a2a-gateway plugin", () => {
           contextId: "ctx-data-2",
           userMessage: {
             messageId: "msg-data-2",
-            role: "user",
+            role: "ROLE_USER",
             parts: [
               {
                 kind: "data",
@@ -693,8 +701,8 @@ describe("a2a-gateway plugin", () => {
           contextId: "ctx-media-1",
           userMessage: {
             messageId: "msg-media-1",
-            role: "user",
-            parts: [{ kind: "text", text: "generate chart" }],
+            role: "ROLE_USER",
+            parts: [{ text: "generate chart" }],
           },
         } as any,
         {
@@ -703,28 +711,31 @@ describe("a2a-gateway plugin", () => {
         } as any,
       );
 
-      const finalTask = published[published.length - 1] as Record<string, unknown>;
+      const finalTask = lastPublishedTask(published);
       const status = finalTask.status as Record<string, unknown>;
-      assert.equal(status.state, "completed");
+      assert.equal(status.state, TaskState.TASK_STATE_COMPLETED);
 
       const message = status.message as Record<string, unknown>;
       const parts = message.parts as Array<Record<string, unknown>>;
 
       // Should have both TextPart and FilePart
-      const textParts = parts.filter((p) => p.kind === "text");
-      const fileParts = parts.filter((p) => p.kind === "file");
+      const textParts = parts.filter((p) => isTextPart(p));
+      const fileParts = parts.filter((p) => isUrlPart(p));
 
       assert.ok(textParts.length >= 1, "should have at least one text part");
       assert.equal(fileParts.length, 1, "should have exactly one file part");
 
-      const filePart = fileParts[0] as { kind: string; file: { uri: string } };
-      assert.equal(filePart.file.uri, "https://example.com/chart.png");
+      const filePart = fileParts[0];
+      const fileUrl = (filePart.content as { $case?: string; value?: string } | undefined)?.$case === "url"
+        ? (filePart.content as { value: string }).value
+        : String(filePart.url ?? "");
+      assert.equal(fileUrl, "https://example.com/chart.png");
 
       // Artifacts should also contain the file part
       const artifacts = finalTask.artifacts as Array<{ parts: Array<Record<string, unknown>> }>;
       assert.ok(artifacts.length >= 1, "should have at least one artifact");
 
-      const artifactFileParts = artifacts[0].parts.filter((p) => p.kind === "file");
+      const artifactFileParts = artifacts[0].parts.filter((p) => isUrlPart(p));
       assert.equal(artifactFileParts.length, 1, "artifact should have one file part");
     } finally {
       (globalThis as any).WebSocket = originalWebSocket;
@@ -759,8 +770,8 @@ describe("a2a-gateway plugin", () => {
           contextId: "ctx-multi-media",
           userMessage: {
             messageId: "msg-multi-media",
-            role: "user",
-            parts: [{ kind: "text", text: "show gallery" }],
+            role: "ROLE_USER",
+            parts: [{ text: "show gallery" }],
           },
         } as any,
         {
@@ -769,11 +780,11 @@ describe("a2a-gateway plugin", () => {
         } as any,
       );
 
-      const finalTask = published[published.length - 1] as Record<string, unknown>;
+      const finalTask = lastPublishedTask(published);
       const message = (finalTask.status as Record<string, unknown>).message as Record<string, unknown>;
       const parts = message.parts as Array<Record<string, unknown>>;
 
-      const fileParts = parts.filter((p) => p.kind === "file");
+      const fileParts = parts.filter((p) => isUrlPart(p));
       assert.equal(fileParts.length, 2, "should have two file parts for two media URLs");
     } finally {
       (globalThis as any).WebSocket = originalWebSocket;
@@ -800,8 +811,8 @@ describe("a2a-gateway plugin", () => {
           contextId: "ctx-text-only",
           userMessage: {
             messageId: "msg-text-only",
-            role: "user",
-            parts: [{ kind: "text", text: "hello" }],
+            role: "ROLE_USER",
+            parts: [{ text: "hello" }],
           },
         } as any,
         {
@@ -810,15 +821,15 @@ describe("a2a-gateway plugin", () => {
         } as any,
       );
 
-      const finalTask = published[published.length - 1] as Record<string, unknown>;
+      const finalTask = lastPublishedTask(published);
       const message = (finalTask.status as Record<string, unknown>).message as Record<string, unknown>;
       const parts = message.parts as Array<Record<string, unknown>>;
 
       assert.equal(parts.length, 1, "should have exactly one part");
-      assert.equal(parts[0].kind, "text");
-      assert.equal(parts[0].text, "Just text, no media");
+      assert.ok(isTextPart(parts[0]));
+      assert.equal(partTextFromJson(parts[0]), "Just text, no media");
 
-      const fileParts = parts.filter((p) => p.kind === "file");
+      const fileParts = parts.filter((p) => isUrlPart(p));
       assert.equal(fileParts.length, 0, "should have no file parts");
     } finally {
       (globalThis as any).WebSocket = originalWebSocket;
@@ -835,7 +846,7 @@ describe("a2a-gateway plugin", () => {
       if (url === "http://mock-peer/.well-known/agent-card.json" || url === "http://mock-peer/.well-known/agent.json") {
         return new Response(
           JSON.stringify({
-            protocolVersion: "0.3.0",
+            protocolVersion: "1.0",
             name: "Peer Agent",
             // Per A2A spec, the Agent Card `url` field is the service endpoint.
             url: "http://mock-peer/a2a/jsonrpc",
@@ -917,7 +928,7 @@ describe("a2a-gateway plugin", () => {
       if (url === "http://mock-peer/.well-known/agent-card.json" || url === "http://mock-peer/.well-known/agent.json") {
         return new Response(
           JSON.stringify({
-            protocolVersion: "0.3.0",
+            protocolVersion: "1.0",
             name: "Peer Agent",
             url: "http://mock-peer/a2a/jsonrpc",
             skills: [],
@@ -979,7 +990,7 @@ describe("a2a-gateway plugin", () => {
 
       // Verify FilePart structure
       const parts = msg.parts as Array<Record<string, unknown>>;
-      const fileParts = parts.filter((p) => p.kind === "file");
+      const fileParts = parts.filter((p) => isUrlPart(p));
       assert.equal(fileParts.length, 1, "should have one file part");
       const fp = fileParts[0] as { kind: string; file: { uri: string; name: string; mimeType: string } };
       assert.equal(fp.file.uri, "https://example.com/report.pdf");
@@ -1021,9 +1032,9 @@ describe("scope verification on connect (issue #54)", () => {
           contextId: "ctx-scope-1",
           userMessage: {
             messageId: "msg-scope-1",
-            role: "user",
+            role: "ROLE_USER",
             agentId: "writer-agent",
-            parts: [{ kind: "text", text: "test scope fallback" }],
+            parts: [{ text: "test scope fallback" }],
           },
         } as any,
         {
@@ -1063,9 +1074,9 @@ describe("scope verification on connect (issue #54)", () => {
           contextId: "ctx-scope-2",
           userMessage: {
             messageId: "msg-scope-2",
-            role: "user",
+            role: "ROLE_USER",
             agentId: "writer-agent",
-            parts: [{ kind: "text", text: "test scope error" }],
+            parts: [{ text: "test scope error" }],
           },
         } as any,
         {
@@ -1076,10 +1087,14 @@ describe("scope verification on connect (issue #54)", () => {
 
       // The executor catches dispatch errors and publishes a "failed" task.
       // Find the failed task event and verify the error message is actionable.
-      const failedTask = published.find((e: any) => e.status?.state === "failed") as any;
+      const failedTask = published.find((e: any) => executionTaskState(e) === TaskState.TASK_STATE_FAILED) as any;
       assert.ok(failedTask, "should publish a failed task when scopes are downgraded");
 
-      const failedText = failedTask.status?.message?.parts?.[0]?.text ?? "";
+      const failedTaskData = failedTask ? unwrapPublishedTask(failedTask) : undefined;
+      const failedText = partTextFromJson(
+        ((failedTaskData?.status as Record<string, unknown> | undefined)?.message as Record<string, unknown> | undefined)
+          ?.parts?.[0] as Record<string, unknown> ?? {},
+      );
       assert.ok(
         failedText.includes("operator.write") || failedText.includes("scope"),
         `failed task message should mention scope issue but got: ${failedText}`,
@@ -1117,9 +1132,9 @@ describe("scope verification on connect (issue #54)", () => {
           contextId: "ctx-scope-3",
           userMessage: {
             messageId: "msg-scope-3",
-            role: "user",
+            role: "ROLE_USER",
             agentId: "writer-agent",
-            parts: [{ kind: "text", text: "test device not paired" }],
+            parts: [{ text: "test device not paired" }],
           },
         } as any,
         {
@@ -1158,9 +1173,9 @@ describe("scope verification on connect (issue #54)", () => {
           contextId: "ctx-scope-4",
           userMessage: {
             messageId: "msg-scope-4",
-            role: "user",
+            role: "ROLE_USER",
             agentId: "writer-agent",
-            parts: [{ kind: "text", text: "test no fallback" }],
+            parts: [{ text: "test no fallback" }],
           },
         } as any,
         {
@@ -1200,9 +1215,9 @@ describe("scope verification on connect (issue #54)", () => {
           contextId: "ctx-scope-5",
           userMessage: {
             messageId: "msg-scope-5",
-            role: "user",
+            role: "ROLE_USER",
             agentId: "writer-agent",
-            parts: [{ kind: "text", text: "test older gateway" }],
+            parts: [{ text: "test older gateway" }],
           },
         } as any,
         {

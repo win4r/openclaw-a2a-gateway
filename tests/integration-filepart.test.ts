@@ -63,9 +63,9 @@ describe("integration: FilePart end-to-end", () => {
         params: {
           message: {
             messageId: uuidv4(),
-            role: "user",
+            role: "ROLE_USER",
             parts: [
-              { kind: "text", text: "Analyze this image" },
+              { text: "Analyze this image" },
               {
                 kind: "file",
                 file: {
@@ -155,9 +155,9 @@ describe("integration: FilePart end-to-end", () => {
         params: {
           message: {
             messageId: uuidv4(),
-            role: "user",
+            role: "ROLE_USER",
             parts: [
-              { kind: "text", text: "Read this" },
+              { text: "Read this" },
               {
                 kind: "file",
                 file: { uri: "file:///etc/passwd", mimeType: "text/plain", name: "passwd" },
@@ -215,7 +215,7 @@ describe("integration: FilePart end-to-end", () => {
         params: {
           message: {
             messageId: uuidv4(),
-            role: "user",
+            role: "ROLE_USER",
             parts: [
               {
                 kind: "file",
@@ -285,7 +285,7 @@ describe("integration: FilePart end-to-end", () => {
         params: {
           message: {
             messageId: uuidv4(),
-            role: "user",
+            role: "ROLE_USER",
             parts: [
               {
                 kind: "file",

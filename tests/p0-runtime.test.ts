@@ -5,13 +5,15 @@ import path from "node:path";
 import { describe, it } from "node:test";
 
 import type { Task } from "@a2a-js/sdk";
+import { Role, TaskState } from "@a2a-js/sdk";
 import type { AgentExecutor, ExecutionEventBus } from "@a2a-js/sdk/server";
+import { AgentEvent } from "@a2a-js/sdk/server";
 
 import { QueueingAgentExecutor } from "../src/queueing-executor.js";
 import { FileTaskStore } from "../src/task-store.js";
 import { GatewayTelemetry } from "../src/telemetry.js";
 
-import { silentLogger } from "./helpers.js";
+import { executionTaskState, partTextFromJson, silentLogger, TaskState } from "./helpers.js";
 
 function createDeferred() {
   let resolve!: () => void;
@@ -55,19 +57,25 @@ function createEventBus() {
 
 function makeTask(taskId: string): Task {
   return {
-    kind: "task",
     id: taskId,
     contextId: `ctx-${taskId}`,
     status: {
-      state: "completed",
+      state: TaskState.TASK_STATE_COMPLETED,
       timestamp: new Date().toISOString(),
+      message: undefined,
     },
     artifacts: [
       {
         artifactId: `artifact-${taskId}`,
-        parts: [{ kind: "text", text: `done-${taskId}` }],
+        name: "",
+        description: "",
+        parts: [{ content: { $case: "text", value: `done-${taskId}` }, metadata: undefined, filename: "", mediaType: "" }],
+        metadata: undefined,
+        extensions: [],
       },
     ],
+    history: [],
+    metadata: undefined,
   };
 }
 
@@ -76,10 +84,14 @@ function makeRequestContext(taskId: string) {
     taskId,
     contextId: `ctx-${taskId}`,
     userMessage: {
-      kind: "message",
       messageId: `msg-${taskId}`,
-      role: "user",
-      parts: [{ kind: "text", text: `hello-${taskId}` }],
+      role: Role.ROLE_USER,
+      parts: [{ content: { $case: "text", value: `hello-${taskId}` }, metadata: undefined, filename: "", mediaType: "" }],
+      contextId: `ctx-${taskId}`,
+      taskId,
+      metadata: undefined,
+      extensions: [],
+      referenceTaskIds: [],
     },
   } as any;
 }
@@ -97,7 +109,7 @@ describe("P0 runtime components", () => {
 
       assert.ok(restored, "task should be restored from disk");
       assert.equal(restored.id, "task-1");
-      assert.equal(restored.artifacts?.[0]?.parts?.[0]?.kind, "text");
+      assert.equal(partTextFromJson(restored.artifacts?.[0]?.parts?.[0] as Record<string, unknown>), `done-task-1`);
     } finally {
       await rm(tasksDir, { recursive: true, force: true });
     }
@@ -113,7 +125,7 @@ describe("P0 runtime components", () => {
     const delegate: AgentExecutor = {
       async execute(requestContext, eventBus) {
         await gates.get(requestContext.taskId)?.promise;
-        eventBus.publish(makeTask(requestContext.taskId));
+        eventBus.publish(AgentEvent.task(makeTask(requestContext.taskId)));
         eventBus.finished();
       },
       async cancelTask(_taskId, eventBus) {
@@ -136,8 +148,8 @@ describe("P0 runtime components", () => {
 
     await Promise.resolve();
 
-    assert.equal((bus2.events[0] as Task).status.state, "submitted");
-    assert.equal((bus3.events[0] as Task).status.state, "rejected");
+    assert.equal(executionTaskState(bus2.events[0]), TaskState.TASK_STATE_SUBMITTED);
+    assert.equal(executionTaskState(bus3.events[0]), TaskState.TASK_STATE_REJECTED);
     assert.equal(bus3.isFinished(), true);
 
     gates.get("task-1")?.resolve();
@@ -148,8 +160,8 @@ describe("P0 runtime components", () => {
     await p2;
     await p3;
 
-    assert.equal((bus1.events.at(-1) as Task).status.state, "completed");
-    assert.equal((bus2.events.at(-1) as Task).status.state, "completed");
+    assert.equal(executionTaskState(bus1.events.at(-1)), TaskState.TASK_STATE_COMPLETED);
+    assert.equal(executionTaskState(bus2.events.at(-1)), TaskState.TASK_STATE_COMPLETED);
 
     const snapshot = telemetry.snapshot();
     assert.equal(snapshot.tasks.started, 2);

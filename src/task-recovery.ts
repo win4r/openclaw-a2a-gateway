@@ -1,11 +1,9 @@
-import { randomUUID } from "node:crypto";
+import { TaskState } from "@a2a-js/sdk";
 
+import { agentMessage, isTerminalTaskState, normalizeTaskState, textPart } from "./a2a/helpers.js";
 import type { FileTaskStore } from "./task-store.js";
 
 type LoggerLike = { info: (msg: string) => void; warn: (msg: string) => void };
-
-/** Terminal states that should NOT be recovered — mirrors task-cleanup.ts */
-const TERMINAL_STATES = new Set(["completed", "failed", "canceled", "rejected"]);
 
 const ACTIVE_RECOVERIES = new WeakSet<FileTaskStore>();
 
@@ -18,13 +16,6 @@ export interface RecoveryResult {
 /**
  * Scan the task store at startup and mark any tasks stuck in non-terminal
  * states (submitted/working/input-required/auth-required/unknown) as failed.
- *
- * Uses a terminal-state allowlist so that any future non-terminal states
- * are automatically covered.
- *
- * This closes the lifecycle gap where a gateway restart leaves old tasks
- * hanging indefinitely. No auto-retry or DLQ — just a clean fail with a
- * clear reason.
  */
 export async function recoverStaleTasks(
   store: FileTaskStore,
@@ -58,25 +49,19 @@ export async function recoverStaleTasks(
           continue;
         }
 
-        const { state } = task.status;
-        if (TERMINAL_STATES.has(state)) {
+        const state = normalizeTaskState(task.status?.state);
+        if (isTerminalTaskState(state)) {
           result.skipped += 1;
           continue;
         }
 
-        task.status.state = "failed";
+        task.status.state = TaskState.TASK_STATE_FAILED;
         task.status.timestamp = new Date().toISOString();
-        task.status.message = {
-          kind: "message",
-          messageId: randomUUID(),
-          role: "agent",
-          parts: [
-            {
-              kind: "text",
-              text: `gateway restarted before task completed (was: ${state})`,
-            },
-          ],
-        };
+        task.status.message = agentMessage(
+          task.contextId,
+          [textPart(`gateway restarted before task completed (was: ${state})`)],
+          task.id,
+        );
 
         await store.save(task);
         result.recovered += 1;
