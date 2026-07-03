@@ -1255,6 +1255,8 @@ export class OpenClawAgentExecutor implements AgentExecutor {
   private readonly security: GatewayConfig["security"];
   private readonly taskContextByTaskId: Map<string, string>;
   private readonly wsPool: GatewayRpcConnectionPool;
+  /** Per-contextId dispatch queue to serialize concurrent tasks sharing a context. */
+  private readonly dispatchQueues = new Map<string, Promise<void>>();
 
   constructor(api: OpenClawPluginApi, config: GatewayConfig) {
     this.api = api;
@@ -1354,7 +1356,10 @@ export class OpenClawAgentExecutor implements AgentExecutor {
     }, STREAMING_HEARTBEAT_INTERVAL_MS);
 
     try {
-      agentResponse = await this.dispatchViaGatewayRpc(agentId, requestContext.userMessage, contextId);
+      // Serialize dispatch per contextId to prevent race conditions on the
+      // session .jsonl file when two tasks share the same contextId.
+      // See: https://github.com/win4r/openclaw-a2a-gateway/issues/81
+      agentResponse = await this.enqueueDispatch(contextId, agentId, requestContext.userMessage);
     } catch (err: unknown) {
       clearInterval(heartbeat);
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -1465,6 +1470,52 @@ export class OpenClawAgentExecutor implements AgentExecutor {
     }
   }
 
+
+  /**
+   * Serialize agent dispatch per contextId to prevent race conditions.
+   * Tasks sharing the same contextId are chained so only one dispatches at a time.
+   * Failed tasks do not poison the chain for subsequent tasks.
+   * The queue entry is cleaned up after the chain settles.
+   *
+   * @see https://github.com/win4r/openclaw-a2a-gateway/issues/81
+   */
+  private enqueueDispatch(
+    contextId: string,
+    agentId: string,
+    userMessage: unknown,
+  ): Promise<AgentResponse> {
+    const previous = this.dispatchQueues.get(contextId) ?? Promise.resolve();
+
+    // The queue tracks void (completion), but we need to return AgentResponse.
+    // We create a chained promise that dispatches after the previous one settles.
+    let resolveDispatch: (value: AgentResponse) => void;
+    let rejectDispatch: (error: unknown) => void;
+    const resultPromise = new Promise<AgentResponse>((resolve, reject) => {
+      resolveDispatch = resolve;
+      rejectDispatch = reject;
+    });
+
+    // Chain: swallow predecessor errors so one failure doesn't cascade
+    const chain = previous.catch(() => {}).then(async () => {
+      try {
+        const response = await this.dispatchViaGatewayRpc(agentId, userMessage, contextId);
+        resolveDispatch(response);
+      } catch (err) {
+        rejectDispatch(err);
+      }
+    });
+
+    this.dispatchQueues.set(contextId, chain);
+
+    // Cleanup: remove entry if this is still the tail promise
+    chain.finally(() => {
+      if (this.dispatchQueues.get(contextId) === chain) {
+        this.dispatchQueues.delete(contextId);
+      }
+    }).catch(() => {}); // suppress unhandled rejection on cleanup
+
+    return resultPromise;
+  }
 
   private async dispatchViaGatewayRpc(
     agentId: string,
