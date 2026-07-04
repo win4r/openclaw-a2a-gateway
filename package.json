@@ -15,7 +15,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/win4r/openclaw-a2a-gateway.git"
+    "url": "git+https://github.com/win4r/openclaw-a2a-gateway.git"
   },
   "homepage": "https://github.com/win4r/openclaw-a2a-gateway#readme",
   "scripts": {
