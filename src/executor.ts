@@ -1356,7 +1356,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       id: taskId,
       contextId,
       status: {
-        state: "working",
+        state: "TASK_STATE_WORKING",
         timestamp: new Date().toISOString(),
       },
       history: existingHistory,
@@ -1370,7 +1370,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       const rejectedMessage: Message = {
         kind: "message",
         messageId: uuidv4(),
-        role: "agent",
+        role: "ROLE_AGENT",
         parts: [{
           content: { $case: "text", value: `File validation failed: ${fileValidationError}` },
           filename: "",
@@ -1383,7 +1383,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
         id: taskId,
         contextId,
         status: {
-          state: "failed",
+          state: "TASK_STATE_FAILED",
           message: rejectedMessage,
           timestamp: new Date().toISOString(),
         },
@@ -1404,7 +1404,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
         id: taskId,
         contextId,
         status: {
-          state: "working",
+          state: "TASK_STATE_WORKING",
           timestamp: new Date().toISOString(),
         },
         history: existingHistory,
@@ -1430,7 +1430,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       const failedMessage: Message = {
         kind: "message",
         messageId: uuidv4(),
-        role: "agent",
+        role: "ROLE_AGENT",
         parts: [{
           content: { $case: "text", value: `Agent dispatch failed: ${errorMessage}` },
           filename: "",
@@ -1444,7 +1444,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
         id: taskId,
         contextId,
         status: {
-          state: "failed",
+          state: "TASK_STATE_FAILED",
           message: failedMessage,
           timestamp: new Date().toISOString(),
         },
@@ -1464,7 +1464,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
     const responseMessage: Message = {
       kind: "message",
       messageId: uuidv4(),
-      role: "agent",
+      role: "ROLE_AGENT",
       parts: responseParts,
       contextId,
     };
@@ -1474,7 +1474,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       id: taskId,
       contextId,
       status: {
-        state: "completed",
+        state: "TASK_STATE_COMPLETED",
         message: responseMessage,
         timestamp: new Date().toISOString(),
       },
@@ -1510,7 +1510,7 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       id: taskId,
       contextId,
       status: {
-        state: "canceled",
+        state: "TASK_STATE_CANCELED",
         timestamp: new Date().toISOString(),
       },
     };
