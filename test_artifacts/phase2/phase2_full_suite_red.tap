@@ -1,0 +1,4163 @@
+TAP version 13
+# (node:16290) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: zero-config install (issue \#7)
+    # Subtest: registers plugin with empty config (no agentCard provided)
+    ok 1 - registers plugin with empty config (no agentCard provided)
+      ---
+      duration_ms: 3.956555
+      type: 'test'
+      ...
+    # Subtest: builds Agent Card with defaults when agentCard fields are missing
+    ok 2 - builds Agent Card with defaults when agentCard fields are missing
+      ---
+      duration_ms: 0.190999
+      type: 'test'
+      ...
+    1..2
+ok 1 - zero-config install (issue \#7)
+  ---
+  duration_ms: 4.935846
+  type: 'suite'
+  ...
+# Subtest: session key format (PR \#9, issue \#8)
+    # Subtest: session key uses agent: prefix for OpenClaw gateway compatibility
+    ok 1 - session key uses agent: prefix for OpenClaw gateway compatibility
+      ---
+      duration_ms: 4.939562
+      type: 'test'
+      ...
+    1..1
+ok 2 - session key format (PR \#9, issue \#8)
+  ---
+  duration_ms: 5.067853
+  type: 'suite'
+  ...
+# Subtest: a2a-gateway plugin
+    # Subtest: builds an Agent Card with protocolVersion 0.3.0 and required fields
+    ok 1 - builds an Agent Card with protocolVersion 0.3.0 and required fields
+      ---
+      duration_ms: 0.491604
+      type: 'test'
+      ...
+    # Subtest: defaults published gRPC URL to server.port + 1 when agentCard.grpcProxy is omitted
+    ok 2 - defaults published gRPC URL to server.port + 1 when agentCard.grpcProxy is omitted
+      ---
+      duration_ms: 0.26085
+      type: 'test'
+      ...
+    # Subtest: derives published gRPC URL from the same base URL when agentCard.grpcProxy is true
+    ok 3 - derives published gRPC URL from the same base URL when agentCard.grpcProxy is true
+      ---
+      duration_ms: 0.226495
+      type: 'test'
+      ...
+    # Subtest: dispatches inbound messages via gateway RPC
+    ok 4 - dispatches inbound messages via gateway RPC
+      ---
+      duration_ms: 0.902226
+      type: 'test'
+      ...
+    # Subtest: advertises OpenClaw gateway protocol compatibility through version 4
+    ok 5 - advertises OpenClaw gateway protocol compatibility through version 4
+      ---
+      duration_ms: 0.90503
+      type: 'test'
+      ...
+    # Subtest: publishes fallback response when gateway RPC is unavailable
+    ok 6 - publishes fallback response when gateway RPC is unavailable
+      ---
+      duration_ms: 301.247661
+      type: 'test'
+      ...
+    # Subtest: cancelTask uses tracked task contextId and does not fabricate it
+    ok 7 - cancelTask uses tracked task contextId and does not fabricate it
+      ---
+      duration_ms: 0.433294
+      type: 'test'
+      ...
+    # Subtest: inbound FilePart (URI) is formatted as text for the agent
+    ok 8 - inbound FilePart (URI) is formatted as text for the agent
+      ---
+      duration_ms: 4.919404
+      type: 'test'
+      ...
+    # Subtest: inbound FilePart sanitizes filename with control chars
+    ok 9 - inbound FilePart sanitizes filename with control chars
+      ---
+      duration_ms: 0.97362
+      type: 'test'
+      ...
+    # Subtest: inbound FilePart (base64) is formatted with size hint
+    ok 10 - inbound FilePart (base64) is formatted with size hint
+      ---
+      duration_ms: 0.58006
+      type: 'test'
+      ...
+    # Subtest: inbound DataPart is formatted as structured text for the agent
+    ok 11 - inbound DataPart is formatted as structured text for the agent
+      ---
+      duration_ms: 0.558499
+      type: 'test'
+      ...
+    # Subtest: inbound DataPart with primitive data value is formatted correctly
+    ok 12 - inbound DataPart with primitive data value is formatted correctly
+      ---
+      duration_ms: 0.454204
+      type: 'test'
+      ...
+    # Subtest: response with mediaUrl produces FilePart in completed task
+    ok 13 - response with mediaUrl produces FilePart in completed task
+      ---
+      duration_ms: 0.53774
+      type: 'test'
+      ...
+    # Subtest: response with multiple mediaUrls produces multiple FileParts
+    ok 14 - response with multiple mediaUrls produces multiple FileParts
+      ---
+      duration_ms: 0.456979
+      type: 'test'
+      ...
+    # Subtest: text-only response produces no FilePart (backward compatible)
+    ok 15 - text-only response produces no FilePart (backward compatible)
+      ---
+      duration_ms: 0.465495
+      type: 'test'
+      ...
+    # Subtest: a2a.send sends to mocked peer JSON-RPC endpoint
+    ok 16 - a2a.send sends to mocked peer JSON-RPC endpoint
+      ---
+      duration_ms: 5.33212
+      type: 'test'
+      ...
+    # Subtest: a2a_send_file tool forwards agentId to peer
+    ok 17 - a2a_send_file tool forwards agentId to peer
+      ---
+      duration_ms: 22.515359
+      type: 'test'
+      ...
+    1..17
+ok 3 - a2a-gateway plugin
+  ---
+  duration_ms: 342.128742
+  type: 'suite'
+  ...
+# Subtest: scope verification on connect (issue \#54)
+    # Subtest: falls back to reconnect when scopes are silently downgraded
+    ok 1 - falls back to reconnect when scopes are silently downgraded
+      ---
+      duration_ms: 0.800424
+      type: 'test'
+      ...
+    # Subtest: publishes failed task with clear error when both connect paths lack operator.write
+    ok 2 - publishes failed task with clear error when both connect paths lack operator.write
+      ---
+      duration_ms: 301.669264
+      type: 'test'
+      ...
+    # Subtest: widens fallback to catch 'device not paired' error text
+    ok 3 - widens fallback to catch 'device not paired' error text
+      ---
+      duration_ms: 0.886005
+      type: 'test'
+      ...
+    # Subtest: does not trigger fallback when scopes include operator.write
+    ok 4 - does not trigger fallback when scopes include operator.write
+      ---
+      duration_ms: 0.530216
+      type: 'test'
+      ...
+    # Subtest: does not trigger fallback when response has no scopes field (older gateway)
+    ok 5 - does not trigger fallback when response has no scopes field (older gateway)
+      ---
+      duration_ms: 0.450978
+      type: 'test'
+      ...
+    1..5
+ok 4 - scope verification on connect (issue \#54)
+  ---
+  duration_ms: 304.590573
+  type: 'suite'
+  ...
+# Interrupted while running: tests/a2a-gateway.test.ts at /tmp/doxa_a2a_inspect/tests/a2a-gateway.test.ts:1:1
+TAP version 13
+# (node:16313) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: AuditLogger
+    # Subtest: creates audit file on first write
+    ok 1 - creates audit file on first write
+      ---
+      duration_ms: 1.676039
+      type: 'test'
+      ...
+    # Subtest: writes JSONL format (one JSON object per line)
+    ok 2 - writes JSONL format (one JSON object per line)
+      ---
+      duration_ms: 0.618633
+      type: 'test'
+      ...
+    # Subtest: recordOutbound writes peer and statusCode
+    ok 3 - recordOutbound writes peer and statusCode
+      ---
+      duration_ms: 0.619986
+      type: 'test'
+      ...
+    # Subtest: recordOutbound failure
+    ok 4 - recordOutbound failure
+      ---
+      duration_ms: 0.530757
+      type: 'test'
+      ...
+    # Subtest: recordSecurityEvent writes detail
+    ok 5 - recordSecurityEvent writes detail
+      ---
+      duration_ms: 0.519566
+      type: 'test'
+      ...
+    # Subtest: tail returns last N entries in reverse order
+    ok 6 - tail returns last N entries in reverse order
+      ---
+      duration_ms: 7.159254
+      type: 'test'
+      ...
+    # Subtest: tail returns empty array when file does not exist
+    ok 7 - tail returns empty array when file does not exist
+      ---
+      duration_ms: 0.352953
+      type: 'test'
+      ...
+    # Subtest: tail defaults to 50 entries
+    ok 8 - tail defaults to 50 entries
+      ---
+      duration_ms: 1.935587
+      type: 'test'
+      ...
+    # Subtest: each entry has ISO timestamp
+    ok 9 - each entry has ISO timestamp
+      ---
+      duration_ms: 0.522021
+      type: 'test'
+      ...
+    # Subtest: creates parent directories if they do not exist
+    ok 10 - creates parent directories if they do not exist
+      ---
+      duration_ms: 0.615868
+      type: 'test'
+      ...
+    1..10
+ok 1 - AuditLogger
+  ---
+  duration_ms: 15.763061
+  type: 'suite'
+  ...
+1..1
+# tests 10
+# suites 1
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 150.082527
+TAP version 13
+# (node:16333) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: Dimension 1: Hill Equation Routing Accuracy
+    # Subtest: legacy: matchRule correctness
+    ok 1 - legacy: matchRule correctness
+      ---
+      duration_ms: 1.19738
+      type: 'test'
+      ...
+    # Subtest: bio: matchAllRules with Hill scoring correctness
+    ok 2 - bio: matchAllRules with Hill scoring correctness
+      ---
+      duration_ms: 0.399762
+      type: 'test'
+      ...
+    # Subtest: bio outperforms legacy in routing accuracy
+    ok 3 - bio outperforms legacy in routing accuracy
+      ---
+      duration_ms: 0.128852
+      type: 'test'
+      ...
+    # Subtest: routing latency comparison (1000 iterations)
+    ok 4 - routing latency comparison (1000 iterations)
+      ---
+      duration_ms: 7.943858
+      type: 'test'
+      ...
+    1..4
+ok 1 - Dimension 1: Hill Equation Routing Accuracy
+  ---
+  duration_ms: 10.531931
+  type: 'suite'
+  ...
+# Subtest: Dimension 2: Circuit Breaker Recovery
+    # Subtest: legacy: 3-state recovery
+    ok 1 - legacy: 3-state recovery
+      ---
+      duration_ms: 252.595966
+      type: 'test'
+      ...
+    # Subtest: bio: 4-state recovery
+    ok 2 - bio: 4-state recovery
+      ---
+      duration_ms: 251.170146
+      type: 'test'
+      ...
+    # Subtest: bio serves more requests during recovery
+    ok 3 - bio serves more requests during recovery
+      ---
+      duration_ms: 0.229011
+      type: 'test'
+      ...
+    1..3
+ok 2 - Dimension 2: Circuit Breaker Recovery
+  ---
+  duration_ms: 504.383252
+  type: 'suite'
+  ...
+# Subtest: Dimension 3: Signal Decay Notification Reliability
+    # Subtest: legacy: fire-and-forget delivery rate
+    ok 1 - legacy: fire-and-forget delivery rate
+      ---
+      duration_ms: 47.572646
+      type: 'test'
+      ...
+    # Subtest: bio: decay-aware retry delivery rate
+# ══════════════════════════════════════════════════════════════════════
+#   A2A GATEWAY BIO-INSPIRED BENCHMARK RESULTS
+# ══════════════════════════════════════════════════════════════════════
+#   1. Hill Routing
+#   ────────────────────────────────────────────────────────────
+#   Correct Rate                        Legacy:     20.0 %  Bio:     70.0 %  ↑250.0%
+#   P50 Latency                         Legacy:      2.8 μs  Bio:      3.9 μs  
+#   P99 Latency                         Legacy:     10.9 μs  Bio:     12.7 μs  
+#   2. Circuit Breaker
+#   ────────────────────────────────────────────────────────────
+#   Requests Served During Recovery     Legacy:    200.0 count  Bio:    250.0 count  ↑25.0%
+#   Desensitized Phase Requests         Legacy:      0.0 count  Bio:     50.0 count  ∞
+#   3. Signal Decay
+#   ────────────────────────────────────────────────────────────
+#   Delivery Rate                       Legacy:     40.0 %  Bio:     96.0 %  ↑140.0%
+#   4. QS Discovery
+#   ────────────────────────────────────────────────────────────
+#   Total Queries (600s)                Legacy:     20.0 count  Bio:      9.0 count  ↓55.0%
+#   Query Savings                       Legacy:      0.0 %  Bio:     55.0 %  ∞
+#   5. MM Concurrency
+#   ────────────────────────────────────────────────────────────
+#   Backpressure Coverage               Legacy:      0.0 %  Bio:    100.0 %  ∞
+#   Delay at 50% Load                   Legacy:      0.0 ms  Bio:    250.0 ms  
+#   Delay at 90% Load                   Legacy:      0.0 ms  Bio:    321.4 ms  
+#   Smoothness Ratio                    Legacy:      1.0 x  Bio:      4.0 x  
+#   6. Adaptive Transport
+#   ────────────────────────────────────────────────────────────
+#   Adaptation Events                   Legacy:      0.0 count  Bio:      1.0 count  ∞
+#   Static Order Diversity              Legacy:      1.0 count  Bio:      2.0 count  ↑100.0%
+#   Flaky Transport Score               Legacy:      1.0 score  Bio:      0.5 score  
+#   Reliable Transport Score            Legacy:      1.0 score  Bio:      0.6 score  
+# ══════════════════════════════════════════════════════════════════════
+#   Report written to: /opt/data/home/Desktop/A2A-仿生研究/研究文档/06-benchmark-results.md
+    ok 2 - bio: decay-aware retry delivery rate
+      ---
+      duration_ms: 16953.127482
+      type: 'test'
+      ...
+    # Subtest: bio outperforms legacy in delivery rate
+    ok 3 - bio outperforms legacy in delivery rate
+      ---
+      duration_ms: 0.241113
+      type: 'test'
+      ...
+    1..3
+ok 3 - Dimension 3: Signal Decay Notification Reliability
+  ---
+  duration_ms: 17007.498163
+  type: 'suite'
+  ...
+# Subtest: Dimension 4: QS Discovery Efficiency
+    # Subtest: legacy: fixed-interval query count over 600s
+    ok 1 - legacy: fixed-interval query count over 600s
+      ---
+      duration_ms: 0.122661
+      type: 'test'
+      ...
+    # Subtest: bio: adaptive query count over 600s
+    ok 2 - bio: adaptive query count over 600s
+      ---
+      duration_ms: 0.160311
+      type: 'test'
+      ...
+    # Subtest: bio saves bandwidth over legacy
+    ok 3 - bio saves bandwidth over legacy
+      ---
+      duration_ms: 0.09079
+      type: 'test'
+      ...
+    # Subtest: bio: mode transitions are correct
+    ok 4 - bio: mode transitions are correct
+      ---
+      duration_ms: 0.841091
+      type: 'test'
+      ...
+    1..4
+ok 4 - Dimension 4: QS Discovery Efficiency
+  ---
+  duration_ms: 1.41518
+  type: 'suite'
+  ...
+# Subtest: Dimension 5: MM Soft Concurrency Smoothness
+    # Subtest: legacy: backpressure signal coverage
+    ok 1 - legacy: backpressure signal coverage
+      ---
+      duration_ms: 0.108053
+      type: 'test'
+      ...
+    # Subtest: bio: backpressure signal coverage
+    ok 2 - bio: backpressure signal coverage
+      ---
+      duration_ms: 0.130044
+      type: 'test'
+      ...
+    # Subtest: bio: progressive delay curve
+    ok 3 - bio: progressive delay curve
+      ---
+      duration_ms: 0.142087
+      type: 'test'
+      ...
+    # Subtest: bio provides backpressure signal that legacy lacks
+    ok 4 - bio provides backpressure signal that legacy lacks
+      ---
+      duration_ms: 0.079138
+      type: 'test'
+      ...
+    1..4
+ok 5 - Dimension 5: MM Soft Concurrency Smoothness
+  ---
+  duration_ms: 0.565873
+  type: 'suite'
+  ...
+# Subtest: Dimension 6: Adaptive Transport Selection
+    # Subtest: legacy: static ordering ignores failure history
+    ok 1 - legacy: static ordering ignores failure history
+      ---
+      duration_ms: 0.168476
+      type: 'test'
+      ...
+    # Subtest: bio: adapts when primary transport degrades
+    ok 2 - bio: adapts when primary transport degrades
+      ---
+      duration_ms: 0.362972
+      type: 'test'
+      ...
+    # Subtest: bio: score reflects success rate × latency
+    ok 3 - bio: score reflects success rate × latency
+      ---
+      duration_ms: 0.531849
+      type: 'test'
+      ...
+    # Subtest: bio outperforms legacy in transport adaptation
+    ok 4 - bio outperforms legacy in transport adaptation
+      ---
+      duration_ms: 0.095479
+      type: 'test'
+      ...
+    1..4
+ok 6 - Dimension 6: Adaptive Transport Selection
+  ---
+  duration_ms: 1.268934
+  type: 'suite'
+  ...
+# Interrupted while running: tests/benchmark.test.ts at /tmp/doxa_a2a_inspect/tests/benchmark.test.ts:1:1
+TAP version 13
+# (node:16356) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: event=agent with final payload resolves pending expectFinal agent request
+ok 1 - event=agent with final payload resolves pending expectFinal agent request
+  ---
+  duration_ms: 1.383901
+  type: 'test'
+  ...
+# Subtest: event=agent without content does not resolve pending expectFinal agent request
+ok 2 - event=agent without content does not resolve pending expectFinal agent request
+  ---
+  duration_ms: 0.206658
+  type: 'test'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 164.610933
+TAP version 13
+# (node:16376) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: compat: Agent Card parsing variations
+    # Subtest: client parses minimal Agent Card (protocolVersion + name + url + skills)
+    ok 1 - client parses minimal Agent Card (protocolVersion + name + url + skills)
+      ---
+      duration_ms: 10.170282
+      type: 'test'
+      ...
+    # Subtest: client handles Agent Card with extra unknown fields (forward compat)
+    ok 2 - client handles Agent Card with extra unknown fields (forward compat)
+      ---
+      duration_ms: 1.372049
+      type: 'test'
+      ...
+    # Subtest: client handles skills with various formats (with/without tags, with/without id)
+    ok 3 - client handles skills with various formats (with/without tags, with/without id)
+      ---
+      duration_ms: 1.267071
+      type: 'test'
+      ...
+    # Subtest: client handles Agent Card with no optional fields (no securitySchemes, no additionalInterfaces)
+    ok 4 - client handles Agent Card with no optional fields (no securitySchemes, no additionalInterfaces)
+      ---
+      duration_ms: 1.251883
+      type: 'test'
+      ...
+    # Subtest: client handles different protocolVersion strings (0.3.0, 0.3.1)
+    ok 5 - client handles different protocolVersion strings (0.3.0, 0.3.1)
+      ---
+      duration_ms: 1.6815
+      type: 'test'
+      ...
+    # Subtest: buildAgentCard produces valid card regardless of config completeness
+    ok 6 - buildAgentCard produces valid card regardless of config completeness
+      ---
+      duration_ms: 0.193934
+      type: 'test'
+      ...
+    1..6
+ok 1 - compat: Agent Card parsing variations
+  ---
+  duration_ms: 16.910628
+  type: 'suite'
+  ...
+# Subtest: compat: inbound message format variations
+    # Subtest: handles message with only TextPart (standard case)
+    ok 1 - handles message with only TextPart (standard case)
+      ---
+      duration_ms: 4.009716
+      type: 'test'
+      ...
+    # Subtest: handles message with mixed TextPart + FilePart + DataPart
+    ok 2 - handles message with mixed TextPart + FilePart + DataPart
+      ---
+      duration_ms: 4.488094
+      type: 'test'
+      ...
+    # Subtest: handles message with empty parts array gracefully
+    ok 3 - handles message with empty parts array gracefully
+      ---
+      duration_ms: 0.638831
+      type: 'test'
+      ...
+    # Subtest: handles parts with extra unknown fields (forward compat)
+    ok 4 - handles parts with extra unknown fields (forward compat)
+      ---
+      duration_ms: 0.602372
+      type: 'test'
+      ...
+    # Subtest: handles message with missing role field (should default gracefully)
+    ok 5 - handles message with missing role field (should default gracefully)
+      ---
+      duration_ms: 0.572366
+      type: 'test'
+      ...
+    1..5
+ok 2 - compat: inbound message format variations
+  ---
+  duration_ms: 10.59013
+  type: 'suite'
+  ...
+# Subtest: compat: response format variations
+    # Subtest: handles standard JSON-RPC response with result (from a2a.send)
+    ok 1 - handles standard JSON-RPC response with result (from a2a.send)
+      ---
+      duration_ms: 1.004538
+      type: 'test'
+      ...
+    # Subtest: handles JSON-RPC error response with standard code -32600
+    ok 2 - handles JSON-RPC error response with standard code -32600
+      ---
+      duration_ms: 1.164418
+      type: 'test'
+      ...
+    # Subtest: handles JSON-RPC error with custom error code (non-standard implementations)
+    ok 3 - handles JSON-RPC error with custom error code (non-standard implementations)
+      ---
+      duration_ms: 0.940147
+      type: 'test'
+      ...
+    # Subtest: executor handles agent response with single TextPart correctly
+    ok 4 - executor handles agent response with single TextPart correctly
+      ---
+      duration_ms: 0.477358
+      type: 'test'
+      ...
+    # Subtest: executor handles response with text + mediaUrls (mixed content)
+    ok 5 - executor handles response with text + mediaUrls (mixed content)
+      ---
+      duration_ms: 0.526319
+      type: 'test'
+      ...
+    1..5
+ok 3 - compat: response format variations
+  ---
+  duration_ms: 4.285062
+  type: 'suite'
+  ...
+# Subtest: compat: transport header variations
+    # Subtest: bearer auth token is sent with correct 'Bearer ' prefix to peer
+    ok 1 - bearer auth token is sent with correct 'Bearer ' prefix to peer
+      ---
+      duration_ms: 1.13373
+      type: 'test'
+      ...
+    # Subtest: apiKey auth is sent via x-api-key header
+    ok 2 - apiKey auth is sent via x-api-key header
+      ---
+      duration_ms: 0.795796
+      type: 'test'
+      ...
+# Unhandled error in JSON-RPC POST handler: {
+#   jsonrpc: '2.0',
+#   id: null,
+#   error: {
+#     code: -32000,
+#     message: 'Unauthorized: invalid or missing bearer token'
+#   }
+# }
+    # Subtest: inbound bearer auth works with correct 'Bearer ' prefix
+    ok 3 - inbound bearer auth works with correct 'Bearer ' prefix
+      ---
+      duration_ms: 542.647301
+      type: 'test'
+      ...
+# Unhandled error in JSON-RPC POST handler: {
+#   jsonrpc: '2.0',
+#   id: null,
+#   error: {
+#     code: -32000,
+#     message: 'Unauthorized: invalid or missing bearer token'
+#   }
+# }
+    # Subtest: inbound bearer auth rejects token without 'Bearer ' prefix
+    ok 4 - inbound bearer auth rejects token without 'Bearer ' prefix
+      ---
+      duration_ms: 511.275448
+      type: 'test'
+      ...
+    1..4
+ok 4 - compat: transport header variations
+  ---
+  duration_ms: 1056.148553
+  type: 'suite'
+  ...
+# Interrupted while running: tests/compat-matrix.test.ts at /tmp/doxa_a2a_inspect/tests/compat-matrix.test.ts:1:1
+TAP version 13
+# (node:16399) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: ConnectionPool
+    # Subtest: reuses the same keep-alive socket for sequential requests
+    ok 1 - reuses the same keep-alive socket for sequential requests
+      ---
+      duration_ms: 21.684019
+      type: 'test'
+      ...
+    # Subtest: returns protocol-specific agents
+    ok 2 - returns protocol-specific agents
+      ---
+      duration_ms: 1.608783
+      type: 'test'
+      ...
+    # Subtest: rejects fetches after destroy
+    ok 3 - rejects fetches after destroy
+      ---
+      duration_ms: 0.839528
+      type: 'test'
+      ...
+    1..3
+ok 1 - ConnectionPool
+  ---
+  duration_ms: 25.121579
+  type: 'suite'
+  ...
+1..1
+# tests 3
+# suites 1
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 169.579444
+TAP version 13
+# (node:16420) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: per-contextId dispatch queue
+    # Subtest: serializes two concurrent tasks with the same contextId
+    ok 1 - serializes two concurrent tasks with the same contextId
+      ---
+      duration_ms: 61.810685
+      type: 'test'
+      ...
+    # Subtest: allows concurrent dispatch for different contextIds
+    ok 2 - allows concurrent dispatch for different contextIds
+      ---
+      duration_ms: 50.273624
+      type: 'test'
+      ...
+    # Subtest: does not poison the chain when a task fails
+    ok 3 - does not poison the chain when a task fails
+      ---
+      duration_ms: 0.744529
+      type: 'test'
+      ...
+    # Subtest: cleans up queue entries after chain settles
+    ok 4 - cleans up queue entries after chain settles
+      ---
+      duration_ms: 1.349015
+      type: 'test'
+      ...
+    1..4
+ok 1 - per-contextId dispatch queue
+  ---
+  duration_ms: 115.320201
+  type: 'suite'
+  ...
+1..1
+# tests 4
+# suites 1
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 247.334843
+TAP version 13
+# (node:16440) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: cross-platform tasksDir default (issue \#25)
+    # Subtest: uses ~/.openclaw/a2a-tasks when no tasksDir is configured
+    ok 1 - uses ~/.openclaw/a2a-tasks when no tasksDir is configured
+      ---
+      duration_ms: 1.408376
+      type: 'test'
+      ...
+    # Subtest: respects user-configured absolute path
+    ok 2 - respects user-configured absolute path
+      ---
+      duration_ms: 0.25018
+      type: 'test'
+      ...
+    # Subtest: resolves user-configured relative path (backward compat)
+    ok 3 - resolves user-configured relative path (backward compat)
+      ---
+      duration_ms: 0.308419
+      type: 'test'
+      ...
+    # Subtest: uses resolvePath callback when provided
+    ok 4 - uses resolvePath callback when provided
+      ---
+      duration_ms: 0.246823
+      type: 'test'
+      ...
+    # Subtest: resolvePath transforms user-configured relative path
+    ok 5 - resolvePath transforms user-configured relative path
+      ---
+      duration_ms: 0.22864
+      type: 'test'
+      ...
+    1..5
+ok 1 - cross-platform tasksDir default (issue \#25)
+  ---
+  duration_ms: 3.366686
+  type: 'suite'
+  ...
+# Subtest: cross-platform auditLogPath default
+    # Subtest: uses ~/.openclaw/a2a-audit.jsonl when no auditLogPath is configured
+    ok 1 - uses ~/.openclaw/a2a-audit.jsonl when no auditLogPath is configured
+      ---
+      duration_ms: 0.245371
+      type: 'test'
+      ...
+    # Subtest: respects user-configured absolute path
+    ok 2 - respects user-configured absolute path
+      ---
+      duration_ms: 0.232166
+      type: 'test'
+      ...
+    # Subtest: resolves user-configured relative path to absolute
+    ok 3 - resolves user-configured relative path to absolute
+      ---
+      duration_ms: 1.144601
+      type: 'test'
+      ...
+    1..3
+ok 2 - cross-platform auditLogPath default
+  ---
+  duration_ms: 1.891915
+  type: 'suite'
+  ...
+1..2
+# tests 8
+# suites 2
+# pass 8
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 333.306101
+TAP version 13
+# (node:16461) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: parseTxtRecords
+    # Subtest: parses key=value pairs from TXT record chunks
+    ok 1 - parses key=value pairs from TXT record chunks
+      ---
+      duration_ms: 0.655833
+      type: 'test'
+      ...
+    # Subtest: handles multiple record arrays
+    ok 2 - handles multiple record arrays
+      ---
+      duration_ms: 0.120807
+      type: 'test'
+      ...
+    # Subtest: ignores chunks without = sign
+    ok 3 - ignores chunks without = sign
+      ---
+      duration_ms: 0.124344
+      type: 'test'
+      ...
+    # Subtest: handles empty records
+    ok 4 - handles empty records
+      ---
+      duration_ms: 0.115578
+      type: 'test'
+      ...
+    # Subtest: normalizes keys to lowercase
+    ok 5 - normalizes keys to lowercase
+      ---
+      duration_ms: 0.100949
+      type: 'test'
+      ...
+    # Subtest: preserves value case
+    ok 6 - preserves value case
+      ---
+      duration_ms: 0.107803
+      type: 'test'
+      ...
+    # Subtest: handles values containing = signs
+    ok 7 - handles values containing = signs
+      ---
+      duration_ms: 0.164289
+      type: 'test'
+      ...
+    1..7
+ok 1 - parseTxtRecords
+  ---
+  duration_ms: 2.871907
+  type: 'suite'
+  ...
+# Subtest: buildAgentCardUrl
+    # Subtest: constructs URL from host, port, and default path
+    ok 1 - constructs URL from host, port, and default path
+      ---
+      duration_ms: 0.224893
+      type: 'test'
+      ...
+    # Subtest: uses custom path from TXT record
+    ok 2 - uses custom path from TXT record
+      ---
+      duration_ms: 0.146726
+      type: 'test'
+      ...
+    # Subtest: normalizes path without leading slash
+    ok 3 - normalizes path without leading slash
+      ---
+      duration_ms: 0.140483
+      type: 'test'
+      ...
+    # Subtest: uses default path when pathFromTxt is empty string
+    ok 4 - uses default path when pathFromTxt is empty string
+      ---
+      duration_ms: 0.092474
+      type: 'test'
+      ...
+    1..4
+ok 2 - buildAgentCardUrl
+  ---
+  duration_ms: 0.996603
+  type: 'suite'
+  ...
+# Subtest: mergeWithStaticPeers
+    # Subtest: merges static and discovered peers
+    ok 1 - merges static and discovered peers
+      ---
+      duration_ms: 0.233038
+      type: 'test'
+      ...
+    # Subtest: static peers take precedence on name collision
+    ok 2 - static peers take precedence on name collision
+      ---
+      duration_ms: 0.128401
+      type: 'test'
+      ...
+    # Subtest: discovered peers with unique names are included
+    ok 3 - discovered peers with unique names are included
+      ---
+      duration_ms: 0.083657
+      type: 'test'
+      ...
+    # Subtest: returns only static peers when no discovered peers
+    ok 4 - returns only static peers when no discovered peers
+      ---
+      duration_ms: 0.06358
+      type: 'test'
+      ...
+    # Subtest: returns only discovered peers (as configs) when no static peers
+    ok 5 - returns only discovered peers (as configs) when no static peers
+      ---
+      duration_ms: 0.067317
+      type: 'test'
+      ...
+    1..5
+ok 3 - mergeWithStaticPeers
+  ---
+  duration_ms: 0.722528
+  type: 'suite'
+  ...
+# Subtest: discoveredPeerToConfig
+    # Subtest: converts a basic discovered peer
+    ok 1 - converts a basic discovered peer
+      ---
+      duration_ms: 0.0904
+      type: 'test'
+      ...
+    # Subtest: includes auth when present
+    ok 2 - includes auth when present
+      ---
+      duration_ms: 0.084378
+      type: 'test'
+      ...
+    # Subtest: normalizes unknown auth type to bearer
+    ok 3 - normalizes unknown auth type to bearer
+      ---
+      duration_ms: 0.076534
+      type: 'test'
+      ...
+    1..3
+ok 4 - discoveredPeerToConfig
+  ---
+  duration_ms: 0.336422
+  type: 'suite'
+  ...
+# Subtest: parseDnsDiscoveryConfig
+    # Subtest: returns defaults when raw is undefined
+    ok 1 - returns defaults when raw is undefined
+      ---
+      duration_ms: 0.5745
+      type: 'test'
+      ...
+    # Subtest: returns defaults when raw is empty object
+    ok 2 - returns defaults when raw is empty object
+      ---
+      duration_ms: 0.092524
+      type: 'test'
+      ...
+    # Subtest: parses enabled flag
+    ok 3 - parses enabled flag
+      ---
+      duration_ms: 0.070152
+      type: 'test'
+      ...
+    # Subtest: parses custom serviceName
+    ok 4 - parses custom serviceName
+      ---
+      duration_ms: 0.063659
+      type: 'test'
+      ...
+    # Subtest: parses custom refreshIntervalMs
+    ok 5 - parses custom refreshIntervalMs
+      ---
+      duration_ms: 0.061495
+      type: 'test'
+      ...
+    # Subtest: rejects refreshIntervalMs below 1000ms
+    ok 6 - rejects refreshIntervalMs below 1000ms
+      ---
+      duration_ms: 0.05862
+      type: 'test'
+      ...
+    # Subtest: parses mergeWithStatic=false
+    ok 7 - parses mergeWithStatic=false
+      ---
+      duration_ms: 0.056416
+      type: 'test'
+      ...
+    # Subtest: ignores non-string serviceName
+    ok 8 - ignores non-string serviceName
+      ---
+      duration_ms: 0.055474
+      type: 'test'
+      ...
+    # Subtest: ignores empty string serviceName
+    ok 9 - ignores empty string serviceName
+      ---
+      duration_ms: 0.065323
+      type: 'test'
+      ...
+    1..9
+ok 5 - parseDnsDiscoveryConfig
+  ---
+  duration_ms: 1.296647
+  type: 'suite'
+  ...
+# Subtest: DnsDiscoveryManager
+    # Subtest: starts and stops without errors
+    ok 1 - starts and stops without errors
+      ---
+      duration_ms: 0.622279
+      type: 'test'
+      ...
+    # Subtest: does not start when disabled
+    ok 2 - does not start when disabled
+      ---
+      duration_ms: 0.147087
+      type: 'test'
+      ...
+    # Subtest: discovers peers from SRV + TXT records
+    ok 3 - discovers peers from SRV + TXT records
+      ---
+      duration_ms: 50.196219
+      type: 'test'
+      ...
+    # Subtest: uses SRV hostname prefix as name when TXT has no name field
+    ok 4 - uses SRV hostname prefix as name when TXT has no name field
+      ---
+      duration_ms: 50.911904
+      type: 'test'
+      ...
+    # Subtest: includes auth from TXT records
+    ok 5 - includes auth from TXT records
+      ---
+      duration_ms: 50.667294
+      type: 'test'
+      ...
+    # Subtest: retains last known peers on DNS failure (graceful degradation)
+    ok 6 - retains last known peers on DNS failure (graceful degradation)
+      ---
+      duration_ms: 201.429677
+      type: 'test'
+      ...
+    # Subtest: evicts expired peers on refresh
+    ok 7 - evicts expired peers on refresh
+      ---
+      duration_ms: 100.881737
+      type: 'test'
+      ...
+    # Subtest: handles ENODATA from SRV gracefully (no crash)
+    ok 8 - handles ENODATA from SRV gracefully (no crash)
+      ---
+      duration_ms: 50.719663
+      type: 'test'
+      ...
+    # Subtest: handles ENOTFOUND from SRV gracefully
+    ok 9 - handles ENOTFOUND from SRV gracefully
+      ---
+      duration_ms: 50.790345
+      type: 'test'
+      ...
+    # Subtest: toPeerConfigs converts discovered peers to PeerConfig format
+    ok 10 - toPeerConfigs converts discovered peers to PeerConfig format
+      ---
+      duration_ms: 50.816875
+      type: 'test'
+      ...
+    # Subtest: findPeer returns discovered peer by name
+    ok 11 - findPeer returns discovered peer by name
+      ---
+      duration_ms: 49.853986
+      type: 'test'
+      ...
+    # Subtest: discovers multiple SRV records
+    ok 12 - discovers multiple SRV records
+      ---
+      duration_ms: 49.779395
+      type: 'test'
+      ...
+    1..12
+ok 6 - DnsDiscoveryManager
+  ---
+  duration_ms: 707.7516
+  type: 'suite'
+  ...
+# Subtest: discovery config in parseConfig
+    # Subtest: defaults to discovery disabled
+    ok 1 - defaults to discovery disabled
+      ---
+      duration_ms: 182.041935
+      type: 'test'
+      ...
+    # Subtest: parses discovery config when provided
+    ok 2 - parses discovery config when provided
+      ---
+      duration_ms: 0.834107
+      type: 'test'
+      ...
+    1..2
+ok 7 - discovery config in parseConfig
+  ---
+  duration_ms: 183.023158
+  type: 'suite'
+  ...
+1..7
+# tests 42
+# suites 7
+# pass 42
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1040.463945
+TAP version 13
+# (node:16482) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: sanitizeInstanceName
+    # Subtest: passes through a normal name
+    ok 1 - passes through a normal name
+      ---
+      duration_ms: 0.644982
+      type: 'test'
+      ...
+    # Subtest: strips control characters
+    ok 2 - strips control characters
+      ---
+      duration_ms: 0.114956
+      type: 'test'
+      ...
+    # Subtest: trims whitespace
+    ok 3 - trims whitespace
+      ---
+      duration_ms: 0.096952
+      type: 'test'
+      ...
+    # Subtest: truncates to 63 bytes
+    ok 4 - truncates to 63 bytes
+      ---
+      duration_ms: 0.115517
+      type: 'test'
+      ...
+    # Subtest: falls back to default for empty string
+    ok 5 - falls back to default for empty string
+      ---
+      duration_ms: 0.099507
+      type: 'test'
+      ...
+    # Subtest: falls back to default for whitespace-only
+    ok 6 - falls back to default for whitespace-only
+      ---
+      duration_ms: 0.566494
+      type: 'test'
+      ...
+    1..6
+ok 1 - sanitizeInstanceName
+  ---
+  duration_ms: 2.583595
+  type: 'suite'
+  ...
+# Subtest: resolveAdvertiseHostname
+    # Subtest: returns the host as-is when not wildcard
+    ok 1 - returns the host as-is when not wildcard
+      ---
+      duration_ms: 0.157556
+      type: 'test'
+      ...
+    # Subtest: resolves something for 0.0.0.0 (either an IP or hostname)
+    ok 2 - resolves something for 0.0.0.0 (either an IP or hostname)
+      ---
+      duration_ms: 0.369344
+      type: 'test'
+      ...
+    # Subtest: resolves something for :: (IPv6 wildcard)
+    ok 3 - resolves something for :: (IPv6 wildcard)
+      ---
+      duration_ms: 0.195878
+      type: 'test'
+      ...
+    1..3
+ok 2 - resolveAdvertiseHostname
+  ---
+  duration_ms: 0.929447
+  type: 'suite'
+  ...
+# Subtest: encodeTxtData
+    # Subtest: encodes key=value pairs as buffers
+    ok 1 - encodes key=value pairs as buffers
+      ---
+      duration_ms: 0.209794
+      type: 'test'
+      ...
+    # Subtest: skips empty values
+    ok 2 - skips empty values
+      ---
+      duration_ms: 0.101981
+      type: 'test'
+      ...
+    # Subtest: returns empty array for empty input
+    ok 3 - returns empty array for empty input
+      ---
+      duration_ms: 0.446549
+      type: 'test'
+      ...
+    1..3
+ok 3 - encodeTxtData
+  ---
+  duration_ms: 0.870186
+  type: 'suite'
+  ...
+# Subtest: buildMdnsAdvertiseConfig
+    # Subtest: builds config with defaults when raw is empty
+    ok 1 - builds config with defaults when raw is empty
+      ---
+      duration_ms: 0.181952
+      type: 'test'
+      ...
+    # Subtest: includes auth in TXT when bearer is configured
+    ok 2 - includes auth in TXT when bearer is configured
+      ---
+      duration_ms: 0.078027
+      type: 'test'
+      ...
+    # Subtest: respects raw config overrides
+    ok 3 - respects raw config overrides
+      ---
+      duration_ms: 0.165912
+      type: 'test'
+      ...
+    # Subtest: rejects TTL below minimum (10s)
+    ok 4 - rejects TTL below minimum (10s)
+      ---
+      duration_ms: 0.076183
+      type: 'test'
+      ...
+    # Subtest: resolves 0.0.0.0 to a real hostname
+    ok 5 - resolves 0.0.0.0 to a real hostname
+      ---
+      duration_ms: 0.143199
+      type: 'test'
+      ...
+    1..5
+ok 4 - buildMdnsAdvertiseConfig
+  ---
+  duration_ms: 0.775137
+  type: 'suite'
+  ...
+# Subtest: MdnsResponder
+    # Subtest: does not start when enabled is false
+    ok 1 - does not start when enabled is false
+      ---
+      duration_ms: 0.182583
+      type: 'test'
+      ...
+    # Subtest: start + stop lifecycle does not throw
+    ok 2 - start + stop lifecycle does not throw
+      ---
+      duration_ms: 0.993878
+      type: 'test'
+      ...
+    # Subtest: double start is idempotent
+    ok 3 - double start is idempotent
+      ---
+      duration_ms: 0.199766
+      type: 'test'
+      ...
+    # Subtest: stop without start does not throw
+    ok 4 - stop without start does not throw
+      ---
+      duration_ms: 0.067356
+      type: 'test'
+      ...
+    # Subtest: logs start and stop events
+    ok 5 - logs start and stop events
+      ---
+      duration_ms: 0.158388
+      type: 'test'
+      ...
+    1..5
+ok 5 - MdnsResponder
+  ---
+  duration_ms: 1.745941
+  type: 'suite'
+  ...
+# Subtest: config → responder round-trip
+    # Subtest: disabled config produces no-op responder
+    ok 1 - disabled config produces no-op responder
+      ---
+      duration_ms: 0.10143
+      type: 'test'
+      ...
+    # Subtest: enabled config produces working responder
+    ok 2 - enabled config produces working responder
+      ---
+      duration_ms: 0.174688
+      type: 'test'
+      ...
+    1..2
+ok 6 - config → responder round-trip
+  ---
+  duration_ms: 0.348956
+  type: 'suite'
+  ...
+1..6
+# tests 24
+# suites 6
+# pass 24
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 162.21765
+TAP version 13
+# (node:16502) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: isPrivateIp
+    # Subtest: blocks 127.0.0.1 (loopback)
+    ok 1 - blocks 127.0.0.1 (loopback)
+      ---
+      duration_ms: 0.993587
+      type: 'test'
+      ...
+    # Subtest: blocks 10.0.0.1 (class A private)
+    ok 2 - blocks 10.0.0.1 (class A private)
+      ---
+      duration_ms: 0.189817
+      type: 'test'
+      ...
+    # Subtest: blocks 172.16.0.1 (class B private)
+    ok 3 - blocks 172.16.0.1 (class B private)
+      ---
+      duration_ms: 0.097544
+      type: 'test'
+      ...
+    # Subtest: blocks 192.168.1.1 (class C private)
+    ok 4 - blocks 192.168.1.1 (class C private)
+      ---
+      duration_ms: 0.084699
+      type: 'test'
+      ...
+    # Subtest: blocks 169.254.1.1 (link-local)
+    ok 5 - blocks 169.254.1.1 (link-local)
+      ---
+      duration_ms: 0.097262
+      type: 'test'
+      ...
+    # Subtest: blocks 0.0.0.0
+    ok 6 - blocks 0.0.0.0
+      ---
+      duration_ms: 0.096431
+      type: 'test'
+      ...
+    # Subtest: blocks ::1 (IPv6 loopback)
+    ok 7 - blocks ::1 (IPv6 loopback)
+      ---
+      duration_ms: 3.89562
+      type: 'test'
+      ...
+    # Subtest: blocks fc00::1 (IPv6 unique local)
+    ok 8 - blocks fc00::1 (IPv6 unique local)
+      ---
+      duration_ms: 0.814962
+      type: 'test'
+      ...
+    # Subtest: blocks fe80::1 (IPv6 link-local)
+    ok 9 - blocks fe80::1 (IPv6 link-local)
+      ---
+      duration_ms: 0.126217
+      type: 'test'
+      ...
+    # Subtest: blocks ::ffff:127.0.0.1 (IPv4-mapped IPv6)
+    ok 10 - blocks ::ffff:127.0.0.1 (IPv4-mapped IPv6)
+      ---
+      duration_ms: 0.142678
+      type: 'test'
+      ...
+    # Subtest: blocks ::ffff:10.0.0.1 (IPv4-mapped IPv6 private)
+    ok 11 - blocks ::ffff:10.0.0.1 (IPv4-mapped IPv6 private)
+      ---
+      duration_ms: 0.104025
+      type: 'test'
+      ...
+    # Subtest: allows 8.8.8.8 (public IPv4)
+    ok 12 - allows 8.8.8.8 (public IPv4)
+      ---
+      duration_ms: 0.07948
+      type: 'test'
+      ...
+    # Subtest: allows 2607:f8b0:4004:800::200e (public IPv6)
+    ok 13 - allows 2607:f8b0:4004:800::200e (public IPv6)
+      ---
+      duration_ms: 0.07465
+      type: 'test'
+      ...
+    # Subtest: blocks 172.31.255.255 (end of 172.16/12 range)
+    ok 14 - blocks 172.31.255.255 (end of 172.16/12 range)
+      ---
+      duration_ms: 0.06374
+      type: 'test'
+      ...
+    # Subtest: allows 172.32.0.1 (outside 172.16/12 range)
+    ok 15 - allows 172.32.0.1 (outside 172.16/12 range)
+      ---
+      duration_ms: 0.072075
+      type: 'test'
+      ...
+    1..15
+ok 1 - isPrivateIp
+  ---
+  duration_ms: 8.140437
+  type: 'suite'
+  ...
+# Subtest: validateUriSchemeAndIp
+    # Subtest: blocks http://[::1]/x (IPv6 loopback with brackets)
+    ok 1 - blocks http://[::1]/x (IPv6 loopback with brackets)
+      ---
+      duration_ms: 0.250651
+      type: 'test'
+      ...
+    # Subtest: blocks http://[::ffff:127.0.0.1]/x (IPv4-mapped IPv6 with brackets)
+    ok 2 - blocks http://[::ffff:127.0.0.1]/x (IPv4-mapped IPv6 with brackets)
+      ---
+      duration_ms: 0.121939
+      type: 'test'
+      ...
+    # Subtest: allows http://[2607:f8b0::1]/x (public IPv6 with brackets)
+    ok 3 - allows http://[2607:f8b0::1]/x (public IPv6 with brackets)
+      ---
+      duration_ms: 0.093716
+      type: 'test'
+      ...
+    # Subtest: blocks file:// scheme
+    ok 4 - blocks file:// scheme
+      ---
+      duration_ms: 0.070953
+      type: 'test'
+      ...
+    # Subtest: allows normal hostname (no DNS check)
+    ok 5 - allows normal hostname (no DNS check)
+      ---
+      duration_ms: 0.060604
+      type: 'test'
+      ...
+    1..5
+ok 2 - validateUriSchemeAndIp
+  ---
+  duration_ms: 0.742635
+  type: 'suite'
+  ...
+# Subtest: decodedBase64Size
+    # Subtest: handles no padding
+    ok 1 - handles no padding
+      ---
+      duration_ms: 0.113934
+      type: 'test'
+      ...
+    # Subtest: handles single padding
+    ok 2 - handles single padding
+      ---
+      duration_ms: 0.064201
+      type: 'test'
+      ...
+    # Subtest: handles double padding
+    ok 3 - handles double padding
+      ---
+      duration_ms: 0.053381
+      type: 'test'
+      ...
+    # Subtest: handles empty string
+    ok 4 - handles empty string
+      ---
+      duration_ms: 0.048501
+      type: 'test'
+      ...
+    1..4
+ok 3 - decodedBase64Size
+  ---
+  duration_ms: 0.380454
+  type: 'suite'
+  ...
+# Subtest: validateUri
+    # Subtest: rejects file:// scheme
+    ok 1 - rejects file:// scheme
+      ---
+      duration_ms: 0.217158
+      type: 'test'
+      ...
+    # Subtest: rejects ftp:// scheme
+    ok 2 - rejects ftp:// scheme
+      ---
+      duration_ms: 0.080131
+      type: 'test'
+      ...
+    # Subtest: rejects invalid URI
+    ok 3 - rejects invalid URI
+      ---
+      duration_ms: 0.09611
+      type: 'test'
+      ...
+    # Subtest: rejects private IP in URL
+    ok 4 - rejects private IP in URL
+      ---
+      duration_ms: 0.080582
+      type: 'test'
+      ...
+    # Subtest: rejects hostname resolving to private IP
+    ok 5 - rejects hostname resolving to private IP
+      ---
+      duration_ms: 0.115898
+      type: 'test'
+      ...
+    # Subtest: allows valid public URL
+    ok 6 - allows valid public URL
+      ---
+      duration_ms: 0.093315
+      type: 'test'
+      ...
+    # Subtest: enforces URI allowlist
+    ok 7 - enforces URI allowlist
+      ---
+      duration_ms: 0.134432
+      type: 'test'
+      ...
+    # Subtest: allows hostname matching allowlist wildcard
+    ok 8 - allows hostname matching allowlist wildcard
+      ---
+      duration_ms: 0.100008
+      type: 'test'
+      ...
+    # Subtest: handles DNS resolution failure
+    ok 9 - handles DNS resolution failure
+      ---
+      duration_ms: 0.147718
+      type: 'test'
+      ...
+    # Subtest: blocks IPv6 loopback with brackets in URL
+    ok 10 - blocks IPv6 loopback with brackets in URL
+      ---
+      duration_ms: 0.110086
+      type: 'test'
+      ...
+    # Subtest: blocks IPv4-mapped IPv6 with brackets
+    ok 11 - blocks IPv4-mapped IPv6 with brackets
+      ---
+      duration_ms: 0.104837
+      type: 'test'
+      ...
+    1..11
+ok 4 - validateUri
+  ---
+  duration_ms: 1.533742
+  type: 'suite'
+  ...
+# Subtest: validateMimeType
+    # Subtest: matches wildcard subtype
+    ok 1 - matches wildcard subtype
+      ---
+      duration_ms: 0.152075
+      type: 'test'
+      ...
+    # Subtest: matches exact type
+    ok 2 - matches exact type
+      ---
+      duration_ms: 0.078869
+      type: 'test'
+      ...
+    # Subtest: rejects unlisted type
+    ok 3 - rejects unlisted type
+      ---
+      duration_ms: 0.083807
+      type: 'test'
+      ...
+    # Subtest: is case-insensitive
+    ok 4 - is case-insensitive
+      ---
+      duration_ms: 0.097303
+      type: 'test'
+      ...
+    # Subtest: rejects empty MIME type
+    ok 5 - rejects empty MIME type
+      ---
+      duration_ms: 0.079218
+      type: 'test'
+      ...
+    # Subtest: strips MIME parameters before matching (wildcard)
+    ok 6 - strips MIME parameters before matching (wildcard)
+      ---
+      duration_ms: 0.099066
+      type: 'test'
+      ...
+    # Subtest: strips MIME parameters before matching (exact)
+    ok 7 - strips MIME parameters before matching (exact)
+      ---
+      duration_ms: 0.088155
+      type: 'test'
+      ...
+    1..7
+ok 5 - validateMimeType
+  ---
+  duration_ms: 1.56406
+  type: 'suite'
+  ...
+# Subtest: checkFileSize
+    # Subtest: allows file within limit
+    ok 1 - allows file within limit
+      ---
+      duration_ms: 0.104947
+      type: 'test'
+      ...
+    # Subtest: allows file exactly at limit
+    ok 2 - allows file exactly at limit
+      ---
+      duration_ms: 0.05337
+      type: 'test'
+      ...
+    # Subtest: rejects file exceeding limit
+    ok 3 - rejects file exceeding limit
+      ---
+      duration_ms: 0.06347
+      type: 'test'
+      ...
+    1..3
+ok 6 - checkFileSize
+  ---
+  duration_ms: 0.33022
+  type: 'suite'
+  ...
+# Subtest: detectMimeType
+    # Subtest: detects .pdf
+    ok 1 - detects .pdf
+      ---
+      duration_ms: 0.11713
+      type: 'test'
+      ...
+    # Subtest: detects .png
+    ok 2 - detects .png
+      ---
+      duration_ms: 0.053751
+      type: 'test'
+      ...
+    # Subtest: detects .jpg
+    ok 3 - detects .jpg
+      ---
+      duration_ms: 0.0531
+      type: 'test'
+      ...
+    # Subtest: detects .mp4
+    ok 4 - detects .mp4
+      ---
+      duration_ms: 0.059803
+      type: 'test'
+      ...
+    # Subtest: returns octet-stream for unknown
+    ok 5 - returns octet-stream for unknown
+      ---
+      duration_ms: 0.054843
+      type: 'test'
+      ...
+    # Subtest: is case-insensitive on extension
+    ok 6 - is case-insensitive on extension
+      ---
+      duration_ms: 0.04783
+      type: 'test'
+      ...
+    1..6
+ok 7 - detectMimeType
+  ---
+  duration_ms: 0.51111
+  type: 'suite'
+  ...
+# Subtest: sanitizeUriForLog
+    # Subtest: returns short URI without query unchanged
+    ok 1 - returns short URI without query unchanged
+      ---
+      duration_ms: 0.134192
+      type: 'test'
+      ...
+    # Subtest: strips query string (may contain tokens)
+    ok 2 - strips query string (may contain tokens)
+      ---
+      duration_ms: 0.107983
+      type: 'test'
+      ...
+    # Subtest: strips credentials from URI
+    ok 3 - strips credentials from URI
+      ---
+      duration_ms: 0.07449
+      type: 'test'
+      ...
+    # Subtest: truncates long URI after cleaning
+    ok 4 - truncates long URI after cleaning
+      ---
+      duration_ms: 0.068188
+      type: 'test'
+      ...
+    # Subtest: handles unparseable URI by truncating
+    ok 5 - handles unparseable URI by truncating
+      ---
+      duration_ms: 0.067607
+      type: 'test'
+      ...
+    1..5
+ok 8 - sanitizeUriForLog
+  ---
+  duration_ms: 0.562697
+  type: 'suite'
+  ...
+# Subtest: sanitizeFilePartForLog
+    # Subtest: redacts base64 bytes
+    ok 1 - redacts base64 bytes
+      ---
+      duration_ms: 0.105058
+      type: 'test'
+      ...
+    # Subtest: truncates long URI
+    ok 2 - truncates long URI
+      ---
+      duration_ms: 0.079319
+      type: 'test'
+      ...
+    # Subtest: does not mutate original
+    ok 3 - does not mutate original
+      ---
+      duration_ms: 0.057808
+      type: 'test'
+      ...
+    1..3
+ok 9 - sanitizeFilePartForLog
+  ---
+  duration_ms: 0.316084
+  type: 'suite'
+  ...
+1..9
+# tests 59
+# suites 9
+# pass 59
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 172.71082
+TAP version 13
+# (node:16522) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: integration: FilePart end-to-end
+    # Subtest: sends message with FilePart via JSON-RPC and receives FilePart in response
+    ok 1 - sends message with FilePart via JSON-RPC and receives FilePart in response
+      ---
+      duration_ms: 553.306497
+      type: 'test'
+      ...
+    # Subtest: rejects inbound FilePart with file:// URI (SSRF)
+    ok 2 - rejects inbound FilePart with file:// URI (SSRF)
+      ---
+      duration_ms: 510.23133
+      type: 'test'
+      ...
+    # Subtest: rejects inbound FilePart with disallowed MIME type
+    ok 3 - rejects inbound FilePart with disallowed MIME type
+      ---
+      duration_ms: 508.239236
+      type: 'test'
+      ...
+    # Subtest: rejects inbound inline FilePart exceeding size limit
+    ok 4 - rejects inbound inline FilePart exceeding size limit
+      ---
+      duration_ms: 507.619522
+      type: 'test'
+      ...
+    1..4
+ok 1 - integration: FilePart end-to-end
+  ---
+  duration_ms: 2080.454063
+  type: 'suite'
+  ...
+# Interrupted while running: tests/integration-filepart.test.ts at /tmp/doxa_a2a_inspect/tests/integration-filepart.test.ts:1:1
+TAP version 13
+# (node:16545) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: metrics endpoint auth
+    # Subtest: returns metrics without auth when metricsAuth is none (default)
+    ok 1 - returns metrics without auth when metricsAuth is none (default)
+      ---
+      duration_ms: 38.975314
+      type: 'test'
+      ...
+    # Subtest: rejects metrics request without token when metricsAuth is bearer
+    ok 2 - rejects metrics request without token when metricsAuth is bearer
+      ---
+      duration_ms: 8.235646
+      type: 'test'
+      ...
+    # Subtest: rejects metrics request with wrong token when metricsAuth is bearer
+    ok 3 - rejects metrics request with wrong token when metricsAuth is bearer
+      ---
+      duration_ms: 6.599882
+      type: 'test'
+      ...
+    # Subtest: accepts metrics request with valid token when metricsAuth is bearer
+    ok 4 - accepts metrics request with valid token when metricsAuth is bearer
+      ---
+      duration_ms: 6.046353
+      type: 'test'
+      ...
+    1..4
+ok 1 - metrics endpoint auth
+  ---
+  duration_ms: 60.873184
+  type: 'suite'
+  ...
+1..1
+# tests 4
+# suites 1
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 391.786116
+TAP version 13
+# (node:16566) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: multi-round conversation routing
+    # Subtest: reuses the same sessionKey for two rounds with the same contextId
+    ok 1 - reuses the same sessionKey for two rounds with the same contextId
+      ---
+      duration_ms: 6.273309
+      type: 'test'
+      ...
+    # Subtest: uses different sessionKeys for different contextIds
+    ok 2 - uses different sessionKeys for different contextIds
+      ---
+      duration_ms: 1.075802
+      type: 'test'
+      ...
+    # Subtest: keeps taskContextByTaskId mapped for multiple taskIds in the same context
+    ok 3 - keeps taskContextByTaskId mapped for multiple taskIds in the same context
+      ---
+      duration_ms: 1.155301
+      type: 'test'
+      ...
+    1..3
+ok 1 - multi-round conversation routing
+  ---
+  duration_ms: 9.436935
+  type: 'suite'
+  ...
+# Subtest: history preservation across rounds
+    # Subtest: completed task carries forward existing history from requestContext.task
+    ok 1 - completed task carries forward existing history from requestContext.task
+      ---
+      duration_ms: 0.950226
+      type: 'test'
+      ...
+    # Subtest: truncates history exceeding MAX_HISTORY_MESSAGES (200)
+    ok 2 - truncates history exceeding MAX_HISTORY_MESSAGES (200)
+      ---
+      duration_ms: 1.01644
+      type: 'test'
+      ...
+    # Subtest: first round (no prior task) has empty history
+    ok 3 - first round (no prior task) has empty history
+      ---
+      duration_ms: 0.56412
+      type: 'test'
+      ...
+    1..3
+ok 2 - history preservation across rounds
+  ---
+  duration_ms: 2.81504
+  type: 'suite'
+  ...
+# Subtest: FileTaskStore multi-round persistence
+    # Subtest: keeps the latest saved task state after multiple saves
+    ok 1 - keeps the latest saved task state after multiple saves
+      ---
+      duration_ms: 54.027871
+      type: 'test'
+      ...
+    1..1
+ok 3 - FileTaskStore multi-round persistence
+  ---
+  duration_ms: 54.509375
+  type: 'suite'
+  ...
+# Interrupted while running: tests/multi-round.test.ts at /tmp/doxa_a2a_inspect/tests/multi-round.test.ts:1:1
+TAP version 13
+# (node:16591) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: P0 runtime components
+    # Subtest: FileTaskStore persists tasks across instances
+    ok 1 - FileTaskStore persists tasks across instances
+      ---
+      duration_ms: 10.301669
+      type: 'test'
+      ...
+    # Subtest: QueueingAgentExecutor queues overflow safely and tracks metrics
+    ok 2 - QueueingAgentExecutor queues overflow safely and tracks metrics
+      ---
+      duration_ms: 1.779865
+      type: 'test'
+      ...
+    1..2
+ok 1 - P0 runtime components
+  ---
+  duration_ms: 12.99991
+  type: 'suite'
+  ...
+1..1
+# tests 2
+# suites 1
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 334.187323
+TAP version 13
+# (node:16612) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: PeerHealthManager
+    # Subtest: initializes all peers as unknown/closed
+    ok 1 - initializes all peers as unknown/closed
+      ---
+      duration_ms: 0.880475
+      type: 'test'
+      ...
+    # Subtest: isAvailable returns true for closed circuit
+    ok 2 - isAvailable returns true for closed circuit
+      ---
+      duration_ms: 0.171662
+      type: 'test'
+      ...
+    # Subtest: isAvailable returns true for unknown peer (fail at send)
+    ok 3 - isAvailable returns true for unknown peer (fail at send)
+      ---
+      duration_ms: 0.131868
+      type: 'test'
+      ...
+    # Subtest: recordSuccess resets failures and sets healthy
+    ok 4 - recordSuccess resets failures and sets healthy
+      ---
+      duration_ms: 0.202381
+      type: 'test'
+      ...
+    # Subtest: opens circuit after failure threshold
+    ok 5 - opens circuit after failure threshold
+      ---
+      duration_ms: 0.150172
+      type: 'test'
+      ...
+    # Subtest: transitions from open to recovering after cooldown
+    ok 6 - transitions from open to recovering after cooldown
+      ---
+      duration_ms: 150.576852
+      type: 'test'
+      ...
+    # Subtest: recovering success closes circuit
+    ok 7 - recovering success closes circuit
+      ---
+      duration_ms: 151.062835
+      type: 'test'
+      ...
+    # Subtest: recovering failure re-opens circuit
+    ok 8 - recovering failure re-opens circuit
+      ---
+      duration_ms: 150.972796
+      type: 'test'
+      ...
+    # Subtest: recovering allows only one in-flight request (legacy mode)
+    ok 9 - recovering allows only one in-flight request (legacy mode)
+      ---
+      duration_ms: 150.947398
+      type: 'test'
+      ...
+    # Subtest: different peers have independent states
+    ok 10 - different peers have independent states
+      ---
+      duration_ms: 0.370786
+      type: 'test'
+      ...
+    # Subtest: getAllStates returns all peer states
+    ok 11 - getAllStates returns all peer states
+      ---
+      duration_ms: 0.138531
+      type: 'test'
+      ...
+    # Subtest: stop clears interval timer
+    ok 12 - stop clears interval timer
+      ---
+      duration_ms: 0.294083
+      type: 'test'
+      ...
+    # Subtest: updateSkills caches skills for a peer
+    ok 13 - updateSkills caches skills for a peer
+      ---
+      duration_ms: 0.602202
+      type: 'test'
+      ...
+    # Subtest: updateSkills overwrites previous skills
+    ok 14 - updateSkills overwrites previous skills
+      ---
+      duration_ms: 0.08484
+      type: 'test'
+      ...
+    # Subtest: getPeerSkills returns independent copy
+    ok 15 - getPeerSkills returns independent copy
+      ---
+      duration_ms: 0.110478
+      type: 'test'
+      ...
+    # Subtest: getPeerSkills returns empty map when no skills cached
+    ok 16 - getPeerSkills returns empty map when no skills cached
+      ---
+      duration_ms: 0.070192
+      type: 'test'
+      ...
+    1..16
+ok 1 - PeerHealthManager
+  ---
+  duration_ms: 608.598691
+  type: 'suite'
+  ...
+# Subtest: PeerHealthManager — DESENSITIZED state
+    # Subtest: enters DESENSITIZED at softThreshold (before failureThreshold)
+    ok 1 - enters DESENSITIZED at softThreshold (before failureThreshold)
+      ---
+      duration_ms: 0.142868
+      type: 'test'
+      ...
+    # Subtest: DESENSITIZED allows partial traffic (deterministic round-robin)
+    ok 2 - DESENSITIZED allows partial traffic (deterministic round-robin)
+      ---
+      duration_ms: 0.350689
+      type: 'test'
+      ...
+    # Subtest: DESENSITIZED → OPEN at hard failureThreshold
+    ok 3 - DESENSITIZED → OPEN at hard failureThreshold
+      ---
+      duration_ms: 0.126838
+      type: 'test'
+      ...
+    # Subtest: DESENSITIZED → CLOSED on success
+    ok 4 - DESENSITIZED → CLOSED on success
+      ---
+      duration_ms: 0.082805
+      type: 'test'
+      ...
+    # Subtest: without softThreshold, skips DESENSITIZED (goes straight to OPEN)
+    ok 5 - without softThreshold, skips DESENSITIZED (goes straight to OPEN)
+      ---
+      duration_ms: 0.090259
+      type: 'test'
+      ...
+    # Subtest: DESENSITIZED capacity 0.3 gives ~30% pass rate
+    ok 6 - DESENSITIZED capacity 0.3 gives ~30% pass rate
+      ---
+      duration_ms: 0.182303
+      type: 'test'
+      ...
+    # Subtest: DESENSITIZED capacity 1.0 allows all traffic
+    ok 7 - DESENSITIZED capacity 1.0 allows all traffic
+      ---
+      duration_ms: 0.104567
+      type: 'test'
+      ...
+    1..7
+ok 2 - PeerHealthManager — DESENSITIZED state
+  ---
+  duration_ms: 1.313077
+  type: 'suite'
+  ...
+# Subtest: PeerHealthManager — RECOVERING state
+    # Subtest: transitions OPEN → RECOVERING after cooldown
+    ok 1 - transitions OPEN → RECOVERING after cooldown
+      ---
+      duration_ms: 80.337374
+      type: 'test'
+      ...
+    # Subtest: RECOVERING capacity increases over time (monotonic)
+    ok 2 - RECOVERING capacity increases over time (monotonic)
+      ---
+      duration_ms: 0.328878
+      type: 'test'
+      ...
+    # Subtest: computeRecoveryCapacity(0, k) === 0
+    ok 3 - computeRecoveryCapacity(0, k) === 0
+      ---
+      duration_ms: 0.105989
+      type: 'test'
+      ...
+    # Subtest: computeRecoveryCapacity is always in [0, 1]
+    ok 4 - computeRecoveryCapacity is always in [0, 1]
+      ---
+      duration_ms: 0.210275
+      type: 'test'
+      ...
+    # Subtest: RECOVERING → CLOSED on success
+    ok 5 - RECOVERING → CLOSED on success
+      ---
+      duration_ms: 80.548341
+      type: 'test'
+      ...
+    # Subtest: RECOVERING → OPEN on failure
+    ok 6 - RECOVERING → OPEN on failure
+      ---
+      duration_ms: 79.939437
+      type: 'test'
+      ...
+    # Subtest: without recoveryRateConstant, RECOVERING behaves like old half-open
+    ok 7 - without recoveryRateConstant, RECOVERING behaves like old half-open
+      ---
+      duration_ms: 79.77105
+      type: 'test'
+      ...
+    1..7
+ok 3 - PeerHealthManager — RECOVERING state
+  ---
+  duration_ms: 321.824509
+  type: 'suite'
+  ...
+# Subtest: PeerHealthManager — full four-state lifecycle
+    # Subtest: CLOSED → DESENSITIZED → OPEN → RECOVERING → CLOSED
+    ok 1 - CLOSED → DESENSITIZED → OPEN → RECOVERING → CLOSED
+      ---
+      duration_ms: 80.120026
+      type: 'test'
+      ...
+    # Subtest: independent peers: bot-a desensitized does not affect bot-b
+    ok 2 - independent peers: bot-a desensitized does not affect bot-b
+      ---
+      duration_ms: 0.338446
+      type: 'test'
+      ...
+    1..2
+ok 4 - PeerHealthManager — full four-state lifecycle
+  ---
+  duration_ms: 80.668807
+  type: 'suite'
+  ...
+# Subtest: PeerHealthManager — backward compatibility
+    # Subtest: without new config fields, behavior is identical to legacy 3-state
+    ok 1 - without new config fields, behavior is identical to legacy 3-state
+      ---
+      duration_ms: 150.20835
+      type: 'test'
+      ...
+    1..1
+ok 5 - PeerHealthManager — backward compatibility
+  ---
+  duration_ms: 150.448501
+  type: 'suite'
+  ...
+1..5
+# tests 33
+# suites 5
+# pass 33
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1307.128495
+TAP version 13
+# (node:16632) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: isRetryable
+    # Subtest: returns false for successful result
+    ok 1 - returns false for successful result
+      ---
+      duration_ms: 0.669548
+      type: 'test'
+      ...
+    # Subtest: returns true for 500 error
+    ok 2 - returns true for 500 error
+      ---
+      duration_ms: 0.109576
+      type: 'test'
+      ...
+    # Subtest: returns true for 502 error
+    ok 3 - returns true for 502 error
+      ---
+      duration_ms: 0.097994
+      type: 'test'
+      ...
+    # Subtest: returns true for 429 rate limit
+    ok 4 - returns true for 429 rate limit
+      ---
+      duration_ms: 0.118774
+      type: 'test'
+      ...
+    # Subtest: returns false for 400 client error
+    ok 5 - returns false for 400 client error
+      ---
+      duration_ms: 0.112431
+      type: 'test'
+      ...
+    # Subtest: returns false for 404 not found
+    ok 6 - returns false for 404 not found
+      ---
+      duration_ms: 0.100349
+      type: 'test'
+      ...
+    # Subtest: returns true for ECONNREFUSED error
+    ok 7 - returns true for ECONNREFUSED error
+      ---
+      duration_ms: 0.116849
+      type: 'test'
+      ...
+    # Subtest: returns true for fetch failed error
+    ok 8 - returns true for fetch failed error
+      ---
+      duration_ms: 0.110357
+      type: 'test'
+      ...
+    # Subtest: returns false for non-network Error
+    ok 9 - returns false for non-network Error
+      ---
+      duration_ms: 0.119053
+      type: 'test'
+      ...
+    1..9
+ok 1 - isRetryable
+  ---
+  duration_ms: 2.71368
+  type: 'suite'
+  ...
+# Subtest: withRetry
+    # Subtest: returns immediately on success
+    ok 1 - returns immediately on success
+      ---
+      duration_ms: 0.328056
+      type: 'test'
+      ...
+    # Subtest: retries on 500 and eventually succeeds
+    ok 2 - retries on 500 and eventually succeeds
+      ---
+      duration_ms: 30.948069
+      type: 'test'
+      ...
+    # Subtest: does not retry on 400
+    ok 3 - does not retry on 400
+      ---
+      duration_ms: 0.264147
+      type: 'test'
+      ...
+    # Subtest: exhausts retries and returns last failure
+    ok 4 - exhausts retries and returns last failure
+      ---
+      duration_ms: 30.930897
+      type: 'test'
+      ...
+    # Subtest: retries on thrown network errors
+    ok 5 - retries on thrown network errors
+      ---
+      duration_ms: 10.641278
+      type: 'test'
+      ...
+    # Subtest: does not retry when maxRetries is 0
+    ok 6 - does not retry when maxRetries is 0
+      ---
+      duration_ms: 0.232076
+      type: 'test'
+      ...
+    1..6
+ok 2 - withRetry
+  ---
+  duration_ms: 73.844373
+  type: 'suite'
+  ...
+1..2
+# tests 15
+# suites 2
+# pass 15
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 216.6128
+TAP version 13
+# (node:16652) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: PushNotificationStore
+    # Subtest: register + get returns the config
+    ok 1 - register + get returns the config
+      ---
+      duration_ms: 1.436219
+      type: 'test'
+      ...
+    # Subtest: has returns true for registered tasks
+    ok 2 - has returns true for registered tasks
+      ---
+      duration_ms: 0.170671
+      type: 'test'
+      ...
+    # Subtest: unregister removes the registration
+    ok 3 - unregister removes the registration
+      ---
+      duration_ms: 0.167856
+      type: 'test'
+      ...
+    # Subtest: unregister on non-existent task is a no-op
+    ok 4 - unregister on non-existent task is a no-op
+      ---
+      duration_ms: 0.155382
+      type: 'test'
+      ...
+    # Subtest: size tracks active registrations
+    ok 5 - size tracks active registrations
+      ---
+      duration_ms: 0.209473
+      type: 'test'
+      ...
+    # Subtest: register overwrites existing config for same taskId
+    ok 6 - register overwrites existing config for same taskId
+      ---
+      duration_ms: 0.167925
+      type: 'test'
+      ...
+    # Subtest: send returns error when no registration exists
+    ok 7 - send returns error when no registration exists
+      ---
+      duration_ms: 0.211066
+      type: 'test'
+      ...
+    1..7
+ok 1 - PushNotificationStore
+  ---
+  duration_ms: 3.588393
+  type: 'suite'
+  ...
+# Subtest: PushNotificationStore event filtering
+    # Subtest: sends notification for matching event
+    ok 1 - sends notification for matching event
+      ---
+      duration_ms: 26.265319
+      type: 'test'
+      ...
+    # Subtest: does NOT send notification for non-matching event
+    ok 2 - does NOT send notification for non-matching event
+      ---
+      duration_ms: 1.388569
+      type: 'test'
+      ...
+    # Subtest: sends for all terminal events when no filter specified
+    ok 3 - sends for all terminal events when no filter specified
+      ---
+      duration_ms: 7.303606
+      type: 'test'
+      ...
+    1..3
+ok 2 - PushNotificationStore event filtering
+  ---
+  duration_ms: 35.260934
+  type: 'suite'
+  ...
+# Subtest: PushNotificationStore webhook POST format
+    # Subtest: POST body has { taskId, state, task }
+    ok 1 - POST body has { taskId, state, task }
+      ---
+      duration_ms: 3.543209
+      type: 'test'
+      ...
+    # Subtest: Content-Type is application/json
+    ok 2 - Content-Type is application/json
+      ---
+      duration_ms: 2.254477
+      type: 'test'
+      ...
+    # Subtest: Authorization header is sent when token is configured
+    ok 3 - Authorization header is sent when token is configured
+      ---
+      duration_ms: 4.124952
+      type: 'test'
+      ...
+    # Subtest: No Authorization header when token is not configured
+    ok 4 - No Authorization header when token is not configured
+      ---
+      duration_ms: 1.97379
+      type: 'test'
+      ...
+    1..4
+ok 3 - PushNotificationStore webhook POST format
+  ---
+  duration_ms: 12.133612
+  type: 'suite'
+  ...
+# Subtest: PushNotificationStore timeout handling
+    # Subtest: returns error on timeout without throwing
+    ok 1 - returns error on timeout without throwing
+      ---
+      duration_ms: 10001.779622
+      type: 'test'
+      ...
+    1..1
+ok 4 - PushNotificationStore timeout handling
+  ---
+  duration_ms: 10001.951044
+  type: 'suite'
+  ...
+# Subtest: PushNotificationStore cleanup after delivery
+    # Subtest: auto-removes registration after successful delivery
+    ok 1 - auto-removes registration after successful delivery
+      ---
+      duration_ms: 3.632767
+      type: 'test'
+      ...
+    # Subtest: unregistered tasks do not get notifications
+    ok 2 - unregistered tasks do not get notifications
+      ---
+      duration_ms: 0.423476
+      type: 'test'
+      ...
+    1..2
+ok 5 - PushNotificationStore cleanup after delivery
+  ---
+  duration_ms: 4.154367
+  type: 'suite'
+  ...
+# Subtest: PushNotificationStore HTTP error responses
+    # Subtest: returns {ok: false} for HTTP 500 responses
+    ok 1 - returns {ok: false} for HTTP 500 responses
+      ---
+      duration_ms: 2.329497
+      type: 'test'
+      ...
+    # Subtest: returns {ok: false} for connection refused
+    ok 2 - returns {ok: false} for connection refused
+      ---
+      duration_ms: 0.657776
+      type: 'test'
+      ...
+    1..2
+ok 6 - PushNotificationStore HTTP error responses
+  ---
+  duration_ms: 3.103923
+  type: 'suite'
+  ...
+# Subtest: computeImportance — signal decay math
+    # Subtest: importance at t=0 equals initial value
+    ok 1 - importance at t=0 equals initial value
+      ---
+      duration_ms: 0.12788
+      type: 'test'
+      ...
+    # Subtest: importance decays over time
+    ok 2 - importance decays over time
+      ---
+      duration_ms: 0.118422
+      type: 'test'
+      ...
+    # Subtest: higher decayRate means faster decay
+    ok 3 - higher decayRate means faster decay
+      ---
+      duration_ms: 0.105228
+      type: 'test'
+      ...
+    # Subtest: importance is always in [0, initial]
+    ok 4 - importance is always in [0, initial]
+      ---
+      duration_ms: 0.194265
+      type: 'test'
+      ...
+    # Subtest: half-life: importance ≈ 0.5 * initial at t = ln(2)/k
+    ok 5 - half-life: importance ≈ 0.5 * initial at t = ln(2)/k
+      ---
+      duration_ms: 0.08514
+      type: 'test'
+      ...
+    1..5
+ok 7 - computeImportance — signal decay math
+  ---
+  duration_ms: 0.820051
+  type: 'suite'
+  ...
+# Subtest: PushNotificationStore sendWithRetry
+    # Subtest: retries on failure and succeeds eventually
+    ok 1 - retries on failure and succeeds eventually
+      ---
+      duration_ms: 902.750645
+      type: 'test'
+      ...
+    # Subtest: abandons when importance decays below threshold
+    ok 2 - abandons when importance decays below threshold
+      ---
+      duration_ms: 0.627129
+      type: 'test'
+      ...
+    # Subtest: without DecayConfig, send behaves as legacy (no retry)
+    ok 3 - without DecayConfig, send behaves as legacy (no retry)
+      ---
+      duration_ms: 3.792657
+      type: 'test'
+      ...
+    1..3
+ok 8 - PushNotificationStore sendWithRetry
+  ---
+  duration_ms: 907.428025
+  type: 'suite'
+  ...
+# Subtest: PushNotificationStore cleanup
+    # Subtest: removes registrations with importance below threshold
+    ok 1 - removes registrations with importance below threshold
+      ---
+      duration_ms: 0.173967
+      type: 'test'
+      ...
+    # Subtest: cleanup with no threshold uses default 0.1
+    ok 2 - cleanup with no threshold uses default 0.1
+      ---
+      duration_ms: 0.102012
+      type: 'test'
+      ...
+    1..2
+ok 9 - PushNotificationStore cleanup
+  ---
+  duration_ms: 0.355418
+  type: 'suite'
+  ...
+1..9
+# tests 29
+# suites 9
+# pass 29
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 20216.602437
+TAP version 13
+# (node:16675) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: QuorumDiscoveryManager constructor
+    # Subtest: rejects deactivateThreshold >= activateThreshold
+    ok 1 - rejects deactivateThreshold >= activateThreshold
+      ---
+      duration_ms: 1.067827
+      type: 'test'
+      ...
+    # Subtest: rejects activateThreshold < 1
+    ok 2 - rejects activateThreshold < 1
+      ---
+      duration_ms: 0.264898
+      type: 'test'
+      ...
+    # Subtest: rejects negative deactivateThreshold
+    ok 3 - rejects negative deactivateThreshold
+      ---
+      duration_ms: 0.701468
+      type: 'test'
+      ...
+    # Subtest: accepts valid config with defaults
+    ok 4 - accepts valid config with defaults
+      ---
+      duration_ms: 0.280948
+      type: 'test'
+      ...
+    1..4
+ok 1 - QuorumDiscoveryManager constructor
+  ---
+  duration_ms: 3.17177
+  type: 'suite'
+  ...
+# Subtest: QuorumDiscoveryManager mode switching
+    # Subtest: starts in explore mode
+    ok 1 - starts in explore mode
+      ---
+      duration_ms: 0.308119
+      type: 'test'
+      ...
+    # Subtest: switches to stable when density >= activateThreshold
+    ok 2 - switches to stable when density >= activateThreshold
+      ---
+      duration_ms: 80.440198
+      type: 'test'
+      ...
+    # Subtest: stays in explore when density < activateThreshold
+    ok 3 - stays in explore when density < activateThreshold
+      ---
+      duration_ms: 81.227207
+      type: 'test'
+      ...
+    # Subtest: does not switch back to explore until density < deactivateThreshold (hysteresis)
+    ok 4 - does not switch back to explore until density < deactivateThreshold (hysteresis)
+      ---
+      duration_ms: 0.746363
+      type: 'test'
+      ...
+    # Subtest: switches back to explore when density drops below deactivateThreshold
+    ok 5 - switches back to explore when density drops below deactivateThreshold
+      ---
+      duration_ms: 0.336773
+      type: 'test'
+      ...
+    1..5
+ok 2 - QuorumDiscoveryManager mode switching
+  ---
+  duration_ms: 163.587816
+  type: 'suite'
+  ...
+# Subtest: QuorumDiscoveryManager accessors
+    # Subtest: getDensity reflects discovered peer count
+    ok 1 - getDensity reflects discovered peer count
+      ---
+      duration_ms: 80.10542
+      type: 'test'
+      ...
+    # Subtest: getDnsManager returns the underlying DnsDiscoveryManager
+    ok 2 - getDnsManager returns the underlying DnsDiscoveryManager
+      ---
+      duration_ms: 0.218571
+      type: 'test'
+      ...
+    1..2
+ok 3 - QuorumDiscoveryManager accessors
+  ---
+  duration_ms: 80.473502
+  type: 'suite'
+  ...
+# Subtest: QuorumDiscoveryManager lifecycle
+    # Subtest: stop clears timer and does not schedule further ticks
+    ok 1 - stop clears timer and does not schedule further ticks
+      ---
+      duration_ms: 150.845549
+      type: 'test'
+      ...
+    # Subtest: double start is idempotent
+    ok 2 - double start is idempotent
+      ---
+      duration_ms: 51.120379
+      type: 'test'
+      ...
+    1..2
+ok 4 - QuorumDiscoveryManager lifecycle
+  ---
+  duration_ms: 202.29148
+  type: 'suite'
+  ...
+# Subtest: parseQuorumConfig
+    # Subtest: returns null when raw is undefined
+    ok 1 - returns null when raw is undefined
+      ---
+      duration_ms: 0.350839
+      type: 'test'
+      ...
+    # Subtest: parses valid config with custom values
+    ok 2 - parses valid config with custom values
+      ---
+      duration_ms: 0.233629
+      type: 'test'
+      ...
+    # Subtest: uses defaults for missing optional fields
+    ok 3 - uses defaults for missing optional fields
+      ---
+      duration_ms: 0.15445
+      type: 'test'
+      ...
+    # Subtest: returns null when hysteresis constraint is violated
+    ok 4 - returns null when hysteresis constraint is violated
+      ---
+      duration_ms: 0.136537
+      type: 'test'
+      ...
+    # Subtest: uses default thresholds for non-numeric values
+    ok 5 - uses default thresholds for non-numeric values
+      ---
+      duration_ms: 0.153759
+      type: 'test'
+      ...
+    # Subtest: rejects interval < 1000ms
+    ok 6 - rejects interval < 1000ms
+      ---
+      duration_ms: 0.149401
+      type: 'test'
+      ...
+    1..6
+ok 5 - parseQuorumConfig
+  ---
+  duration_ms: 1.415991
+  type: 'suite'
+  ...
+1..5
+# tests 19
+# suites 5
+# pass 19
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 592.717916
+TAP version 13
+# (node:16695) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: parseRoutingRules
+    # Subtest: parses valid rules
+    ok 1 - parses valid rules
+      ---
+      duration_ms: 1.071514
+      type: 'test'
+      ...
+    # Subtest: returns empty array for non-array input
+    ok 2 - returns empty array for non-array input
+      ---
+      duration_ms: 0.109616
+      type: 'test'
+      ...
+    # Subtest: returns empty array for empty array
+    ok 3 - returns empty array for empty array
+      ---
+      duration_ms: 0.09612
+      type: 'test'
+      ...
+    # Subtest: drops entries with missing name
+    ok 4 - drops entries with missing name
+      ---
+      duration_ms: 0.09045
+      type: 'test'
+      ...
+    # Subtest: drops entries with missing match
+    ok 5 - drops entries with missing match
+      ---
+      duration_ms: 0.097814
+      type: 'test'
+      ...
+    # Subtest: drops entries with missing target
+    ok 6 - drops entries with missing target
+      ---
+      duration_ms: 0.101631
+      type: 'test'
+      ...
+    # Subtest: drops entries with missing target.peer
+    ok 7 - drops entries with missing target.peer
+      ---
+      duration_ms: 0.142578
+      type: 'test'
+      ...
+    # Subtest: drops entries with no match criteria
+    ok 8 - drops entries with no match criteria
+      ---
+      duration_ms: 0.106981
+      type: 'test'
+      ...
+    # Subtest: drops entries with empty tags and skills arrays
+    ok 9 - drops entries with empty tags and skills arrays
+      ---
+      duration_ms: 0.129093
+      type: 'test'
+      ...
+    # Subtest: filters out non-string tags and skills
+    ok 10 - filters out non-string tags and skills
+      ---
+      duration_ms: 0.169799
+      type: 'test'
+      ...
+    # Subtest: sorts by priority descending
+    ok 11 - sorts by priority descending
+      ---
+      duration_ms: 0.110658
+      type: 'test'
+      ...
+    # Subtest: defaults priority to 0
+    ok 12 - defaults priority to 0
+      ---
+      duration_ms: 0.091201
+      type: 'test'
+      ...
+    # Subtest: does not include agentId in target when not provided
+    ok 13 - does not include agentId in target when not provided
+      ---
+      duration_ms: 0.116228
+      type: 'test'
+      ...
+    1..13
+ok 1 - parseRoutingRules
+  ---
+  duration_ms: 3.589756
+  type: 'suite'
+  ...
+# Subtest: matchRule — pattern matching
+    # Subtest: matches regex pattern
+    ok 1 - matches regex pattern
+      ---
+      duration_ms: 0.272742
+      type: 'test'
+      ...
+    # Subtest: matches case-insensitively
+    ok 2 - matches case-insensitively
+      ---
+      duration_ms: 0.112141
+      type: 'test'
+      ...
+    # Subtest: returns null when pattern does not match
+    ok 3 - returns null when pattern does not match
+      ---
+      duration_ms: 0.076394
+      type: 'test'
+      ...
+    # Subtest: handles invalid regex gracefully (no match)
+    ok 4 - handles invalid regex gracefully (no match)
+      ---
+      duration_ms: 0.123412
+      type: 'test'
+      ...
+    1..4
+ok 2 - matchRule — pattern matching
+  ---
+  duration_ms: 0.731134
+  type: 'suite'
+  ...
+# Subtest: matchRule — tag matching
+    # Subtest: matches single overlapping tag
+    ok 1 - matches single overlapping tag
+      ---
+      duration_ms: 0.125325
+      type: 'test'
+      ...
+    # Subtest: matches with multiple overlapping tags (OR)
+    ok 2 - matches with multiple overlapping tags (OR)
+      ---
+      duration_ms: 0.093596
+      type: 'test'
+      ...
+    # Subtest: returns null when no tags overlap
+    ok 3 - returns null when no tags overlap
+      ---
+      duration_ms: 0.078778
+      type: 'test'
+      ...
+    # Subtest: returns null when message has no tags
+    ok 4 - returns null when message has no tags
+      ---
+      duration_ms: 0.066325
+      type: 'test'
+      ...
+    1..4
+ok 3 - matchRule — tag matching
+  ---
+  duration_ms: 0.492626
+  type: 'suite'
+  ...
+# Subtest: matchRule — skill matching
+    # Subtest: matches when peer has the skill
+    ok 1 - matches when peer has the skill
+      ---
+      duration_ms: 0.134193
+      type: 'test'
+      ...
+    # Subtest: returns null when peer lacks the skill
+    ok 2 - returns null when peer lacks the skill
+      ---
+      duration_ms: 0.075662
+      type: 'test'
+      ...
+    # Subtest: returns null when peerSkills map is not provided
+    ok 3 - returns null when peerSkills map is not provided
+      ---
+      duration_ms: 0.082595
+      type: 'test'
+      ...
+    # Subtest: returns null when peer is not in the skills map
+    ok 4 - returns null when peer is not in the skills map
+      ---
+      duration_ms: 0.080862
+      type: 'test'
+      ...
+    1..4
+ok 4 - matchRule — skill matching
+  ---
+  duration_ms: 0.50034
+  type: 'suite'
+  ...
+# Subtest: matchRule — combined criteria
+    # Subtest: matches when all criteria are met
+    ok 1 - matches when all criteria are met
+      ---
+      duration_ms: 0.130335
+      type: 'test'
+      ...
+    # Subtest: returns null when pattern matches but tags do not
+    ok 2 - returns null when pattern matches but tags do not
+      ---
+      duration_ms: 0.083176
+      type: 'test'
+      ...
+    # Subtest: returns null when tags match but pattern does not
+    ok 3 - returns null when tags match but pattern does not
+      ---
+      duration_ms: 0.069611
+      type: 'test'
+      ...
+    1..3
+ok 5 - matchRule — combined criteria
+  ---
+  duration_ms: 0.405532
+  type: 'suite'
+  ...
+# Subtest: matchRule — priority ordering
+    # Subtest: higher priority rule wins
+    ok 1 - higher priority rule wins
+      ---
+      duration_ms: 0.141647
+      type: 'test'
+      ...
+    # Subtest: returns first match at same priority (insertion order)
+    ok 2 - returns first match at same priority (insertion order)
+      ---
+      duration_ms: 0.117882
+      type: 'test'
+      ...
+    1..2
+ok 6 - matchRule — priority ordering
+  ---
+  duration_ms: 0.342073
+  type: 'suite'
+  ...
+# Subtest: matchRule — no match
+    # Subtest: returns null when no rules match
+    ok 1 - returns null when no rules match
+      ---
+      duration_ms: 0.115877
+      type: 'test'
+      ...
+    # Subtest: returns null when rules array is empty
+    ok 2 - returns null when rules array is empty
+      ---
+      duration_ms: 0.064882
+      type: 'test'
+      ...
+    1..2
+ok 7 - matchRule — no match
+  ---
+  duration_ms: 0.261402
+  type: 'suite'
+  ...
+# Subtest: matchRule — agentId passthrough
+    # Subtest: includes agentId when rule specifies it
+    ok 1 - includes agentId when rule specifies it
+      ---
+      duration_ms: 0.126988
+      type: 'test'
+      ...
+    # Subtest: omits agentId when rule does not specify it
+    ok 2 - omits agentId when rule does not specify it
+      ---
+      duration_ms: 0.090541
+      type: 'test'
+      ...
+    1..2
+ok 8 - matchRule — agentId passthrough
+  ---
+  duration_ms: 0.323187
+  type: 'suite'
+  ...
+# Subtest: parseConfig — routing.rules integration
+    # Subtest: parses routing.rules from config
+    ok 1 - parses routing.rules from config
+      ---
+      duration_ms: 0.870816
+      type: 'test'
+      ...
+    # Subtest: defaults to empty rules when not configured
+    ok 2 - defaults to empty rules when not configured
+      ---
+      duration_ms: 0.220534
+      type: 'test'
+      ...
+    # Subtest: defaults to empty rules when routing is absent
+    ok 3 - defaults to empty rules when routing is absent
+      ---
+      duration_ms: 0.449074
+      type: 'test'
+      ...
+    1..3
+ok 9 - parseConfig — routing.rules integration
+  ---
+  duration_ms: 1.652506
+  type: 'suite'
+  ...
+# Subtest: a2a.send — rule-based routing
+    # Subtest: returns error when no peer specified and no rules configured
+    ok 1 - returns error when no peer specified and no rules configured
+      ---
+      duration_ms: 3.592381
+      type: 'test'
+      ...
+    # Subtest: returns error when no peer specified and no rule matches
+    ok 2 - returns error when no peer specified and no rule matches
+      ---
+      duration_ms: 2.637386
+      type: 'test'
+      ...
+    # Subtest: explicit peer bypasses rules (peer not found gives peer error, not routing error)
+    ok 3 - explicit peer bypasses rules (peer not found gives peer error, not routing error)
+      ---
+      duration_ms: 0.470224
+      type: 'test'
+      ...
+    1..3
+ok 10 - a2a.send — rule-based routing
+  ---
+  duration_ms: 6.83208
+  type: 'suite'
+  ...
+# Subtest: hillScore — Hill equation math
+    # Subtest: half-saturation: hillScore(Kd, n, Kd) === 0.5 for any n
+    ok 1 - half-saturation: hillScore(Kd, n, Kd) === 0.5 for any n
+      ---
+      duration_ms: 0.131286
+      type: 'test'
+      ...
+    # Subtest: full saturation: hillScore(1, n, Kd) approaches 1
+    ok 2 - full saturation: hillScore(1, n, Kd) approaches 1
+      ---
+      duration_ms: 0.075712
+      type: 'test'
+      ...
+    # Subtest: zero affinity: hillScore(0, n, Kd) === 0
+    ok 3 - zero affinity: hillScore(0, n, Kd) === 0
+      ---
+      duration_ms: 0.052579
+      type: 'test'
+      ...
+    # Subtest: higher n gives steeper sigmoid: score at 0.8 with n=3 > n=1
+    ok 4 - higher n gives steeper sigmoid: score at 0.8 with n=3 > n=1
+      ---
+      duration_ms: 0.067016
+      type: 'test'
+      ...
+    # Subtest: lower n gives gentler curve: score at 0.3 with n=0.5 > n=2
+    ok 5 - lower n gives gentler curve: score at 0.3 with n=0.5 > n=2
+      ---
+      duration_ms: 0.057098
+      type: 'test'
+      ...
+    # Subtest: score is always in [0, 1] range
+    ok 6 - score is always in [0, 1] range
+      ---
+      duration_ms: 0.142567
+      type: 'test'
+      ...
+    # Subtest: n=1 gives linear-like response (equivalent to Michaelis-Menten)
+    ok 7 - n=1 gives linear-like response (equivalent to Michaelis-Menten)
+      ---
+      duration_ms: 0.064361
+      type: 'test'
+      ...
+    1..7
+ok 11 - hillScore — Hill equation math
+  ---
+  duration_ms: 0.746633
+  type: 'suite'
+  ...
+# Subtest: computeAffinity — affinity calculation
+    # Subtest: full skill match gives high affinity
+    ok 1 - full skill match gives high affinity
+      ---
+      duration_ms: 0.215635
+      type: 'test'
+      ...
+    # Subtest: partial skill match gives lower affinity than full match
+    ok 2 - partial skill match gives lower affinity than full match
+      ---
+      duration_ms: 0.09043
+      type: 'test'
+      ...
+    # Subtest: pattern match contributes to affinity
+    ok 3 - pattern match contributes to affinity
+      ---
+      duration_ms: 0.074339
+      type: 'test'
+      ...
+    # Subtest: tag match ratio is proportional
+    ok 4 - tag match ratio is proportional
+      ---
+      duration_ms: 0.082144
+      type: 'test'
+      ...
+    # Subtest: custom weights override defaults
+    ok 5 - custom weights override defaults
+      ---
+      duration_ms: 0.096752
+      type: 'test'
+      ...
+    1..5
+ok 12 - computeAffinity — affinity calculation
+  ---
+  duration_ms: 0.672093
+  type: 'suite'
+  ...
+# Subtest: matchAllRules — scored routing
+    # Subtest: returns scored results sorted by score descending
+    ok 1 - returns scored results sorted by score descending
+      ---
+      duration_ms: 0.179196
+      type: 'test'
+      ...
+    # Subtest: without AffinityConfig, falls back to priority-first (backward compat)
+    ok 2 - without AffinityConfig, falls back to priority-first (backward compat)
+      ---
+      duration_ms: 0.069079
+      type: 'test'
+      ...
+    # Subtest: returns empty array when no rules match
+    ok 3 - returns empty array when no rules match
+      ---
+      duration_ms: 0.070572
+      type: 'test'
+      ...
+    1..3
+ok 13 - matchAllRules — scored routing
+  ---
+  duration_ms: 0.414298
+  type: 'suite'
+  ...
+# Subtest: matchRule — backward compatibility with Hill scoring
+    # Subtest: existing tests still pass: matchRule returns first priority match
+    ok 1 - existing tests still pass: matchRule returns first priority match
+      ---
+      duration_ms: 0.095359
+      type: 'test'
+      ...
+    # Subtest: matchRule still returns null when no match
+    ok 2 - matchRule still returns null when no match
+      ---
+      duration_ms: 0.049633
+      type: 'test'
+      ...
+    1..2
+ok 14 - matchRule — backward compatibility with Hill scoring
+  ---
+  duration_ms: 0.199795
+  type: 'suite'
+  ...
+# Subtest: matchAllRules — performance
+    # Subtest: 1000 rules scored in under 50ms
+    ok 1 - 1000 rules scored in under 50ms
+      ---
+      duration_ms: 1.329078
+      type: 'test'
+      ...
+    1..1
+ok 15 - matchAllRules — performance
+  ---
+  duration_ms: 1.376888
+  type: 'suite'
+  ...
+1..15
+# tests 58
+# suites 15
+# pass 58
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 358.434054
+TAP version 13
+# (node:16716) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: michaelisMentenDelay
+    # Subtest: returns 0 when load is 0
+    ok 1 - returns 0 when load is 0
+      ---
+      duration_ms: 0.687963
+      type: 'test'
+      ...
+    # Subtest: returns 0 when load is negative
+    ok 2 - returns 0 when load is negative
+      ---
+      duration_ms: 0.104937
+      type: 'test'
+      ...
+    # Subtest: returns half baseDelay when load equals Km
+    ok 3 - returns half baseDelay when load equals Km
+      ---
+      duration_ms: 0.107091
+      type: 'test'
+      ...
+    # Subtest: approaches baseDelay at very high load
+    ok 4 - approaches baseDelay at very high load
+      ---
+      duration_ms: 0.139953
+      type: 'test'
+      ...
+    # Subtest: is near 0 at very low load
+    ok 5 - is near 0 at very low load
+      ---
+      duration_ms: 0.098245
+      type: 'test'
+      ...
+    # Subtest: returns baseDelay when Km is 0 (infinite affinity)
+    ok 6 - returns baseDelay when Km is 0 (infinite affinity)
+      ---
+      duration_ms: 0.11705
+      type: 'test'
+      ...
+    # Subtest: is monotonically increasing with load
+    ok 7 - is monotonically increasing with load
+      ---
+      duration_ms: 0.1325
+      type: 'test'
+      ...
+    # Subtest: higher Km delays the onset of saturation
+    ok 8 - higher Km delays the onset of saturation
+      ---
+      duration_ms: 0.104106
+      type: 'test'
+      ...
+    # Subtest: returns 0 for NaN/Infinity inputs
+    ok 9 - returns 0 for NaN/Infinity inputs
+      ---
+      duration_ms: 0.133781
+      type: 'test'
+      ...
+    1..9
+ok 1 - michaelisMentenDelay
+  ---
+  duration_ms: 2.694744
+  type: 'suite'
+  ...
+# Subtest: computeSaturationDelay
+    # Subtest: returns 0 when no active tasks
+    ok 1 - returns 0 when no active tasks
+      ---
+      duration_ms: 0.241253
+      type: 'test'
+      ...
+    # Subtest: returns 0 when maxConcurrent is 0
+    ok 2 - returns 0 when maxConcurrent is 0
+      ---
+      duration_ms: 0.076805
+      type: 'test'
+      ...
+    # Subtest: uses default config when none provided
+    ok 3 - uses default config when none provided
+      ---
+      duration_ms: 0.085901
+      type: 'test'
+      ...
+    # Subtest: respects custom config
+    ok 4 - respects custom config
+      ---
+      duration_ms: 0.091082
+      type: 'test'
+      ...
+    # Subtest: delay increases as load approaches max
+    ok 5 - delay increases as load approaches max
+      ---
+      duration_ms: 0.116199
+      type: 'test'
+      ...
+    1..5
+ok 2 - computeSaturationDelay
+  ---
+  duration_ms: 0.843906
+  type: 'suite'
+  ...
+# Subtest: parseSaturationConfig
+    # Subtest: returns null when raw is undefined
+    ok 1 - returns null when raw is undefined
+      ---
+      duration_ms: 0.155873
+      type: 'test'
+      ...
+    # Subtest: parses valid config
+    ok 2 - parses valid config
+      ---
+      duration_ms: 0.097373
+      type: 'test'
+      ...
+    # Subtest: uses defaults for missing fields
+    ok 3 - uses defaults for missing fields
+      ---
+      duration_ms: 0.07466
+      type: 'test'
+      ...
+    # Subtest: rejects non-positive km
+    ok 4 - rejects non-positive km
+      ---
+      duration_ms: 0.06932
+      type: 'test'
+      ...
+    # Subtest: rejects non-positive baseDelayMs
+    ok 5 - rejects non-positive baseDelayMs
+      ---
+      duration_ms: 0.067657
+      type: 'test'
+      ...
+    1..5
+ok 3 - parseSaturationConfig
+  ---
+  duration_ms: 0.614204
+  type: 'suite'
+  ...
+1..3
+# tests 19
+# suites 3
+# pass 19
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 142.671488
+TAP version 13
+# (node:16736) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: recoverStaleTasks
+    # Subtest: marks submitted tasks as failed
+    ok 1 - marks submitted tasks as failed
+      ---
+      duration_ms: 10.558763
+      type: 'test'
+      ...
+    # Subtest: marks working tasks as failed
+    ok 2 - marks working tasks as failed
+      ---
+      duration_ms: 1.795885
+      type: 'test'
+      ...
+    # Subtest: recovers all non-terminal states (input-required, auth-required, unknown)
+    ok 3 - recovers all non-terminal states (input-required, auth-required, unknown)
+      ---
+      duration_ms: 3.258804
+      type: 'test'
+      ...
+    # Subtest: skips tasks already in terminal states
+    ok 4 - skips tasks already in terminal states
+      ---
+      duration_ms: 2.806915
+      type: 'test'
+      ...
+    # Subtest: handles mixed terminal and non-terminal tasks
+    ok 5 - handles mixed terminal and non-terminal tasks
+      ---
+      duration_ms: 2.898657
+      type: 'test'
+      ...
+    # Subtest: writes a complete Message2 with kind and messageId
+    ok 6 - writes a complete Message2 with kind and messageId
+      ---
+      duration_ms: 1.483468
+      type: 'test'
+      ...
+    # Subtest: returns zeros when task directory is empty
+    ok 7 - returns zeros when task directory is empty
+      ---
+      duration_ms: 0.647207
+      type: 'test'
+      ...
+    # Subtest: returns zeros when task directory does not exist
+    ok 8 - returns zeros when task directory does not exist
+      ---
+      duration_ms: 0.470184
+      type: 'test'
+      ...
+    1..8
+ok 1 - recoverStaleTasks
+  ---
+  duration_ms: 25.22782
+  type: 'suite'
+  ...
+1..1
+# tests 8
+# suites 1
+# pass 8
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 350.17845
+TAP version 13
+# (node:16757) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: FileTaskStore extensions
+    # Subtest: listAll returns all stored task IDs
+    ok 1 - listAll returns all stored task IDs
+      ---
+      duration_ms: 11.820083
+      type: 'test'
+      ...
+    # Subtest: listAll returns empty array when directory does not exist
+    ok 2 - listAll returns empty array when directory does not exist
+      ---
+      duration_ms: 0.588235
+      type: 'test'
+      ...
+    # Subtest: delete removes a task file
+    ok 3 - delete removes a task file
+      ---
+      duration_ms: 2.05941
+      type: 'test'
+      ...
+    # Subtest: delete silently ignores non-existent task
+    ok 4 - delete silently ignores non-existent task
+      ---
+      duration_ms: 0.607953
+      type: 'test'
+      ...
+    # Subtest: mkdir lazy init: directory created only once
+    ok 5 - mkdir lazy init: directory created only once
+      ---
+      duration_ms: 1.600778
+      type: 'test'
+      ...
+    # Subtest: retries directory creation after a transient mkdir failure
+    ok 6 - retries directory creation after a transient mkdir failure
+      ---
+      duration_ms: 2.356789
+      type: 'test'
+      ...
+    1..6
+ok 1 - FileTaskStore extensions
+  ---
+  duration_ms: 20.199911
+  type: 'suite'
+  ...
+# Subtest: Task TTL cleanup
+    # Subtest: expires terminal tasks older than TTL
+    ok 1 - expires terminal tasks older than TTL
+      ---
+      duration_ms: 4.311933
+      type: 'test'
+      ...
+    # Subtest: skips active tasks even if older than TTL
+    ok 2 - skips active tasks even if older than TTL
+      ---
+      duration_ms: 2.230211
+      type: 'test'
+      ...
+    # Subtest: skips tasks without timestamp
+    ok 3 - skips tasks without timestamp
+      ---
+      duration_ms: 1.323087
+      type: 'test'
+      ...
+    # Subtest: handles empty task store gracefully
+    ok 4 - handles empty task store gracefully
+      ---
+      duration_ms: 0.687051
+      type: 'test'
+      ...
+    # Subtest: handles non-existent task store directory
+    ok 5 - handles non-existent task store directory
+      ---
+      duration_ms: 0.387668
+      type: 'test'
+      ...
+    # Subtest: skips overlapping cleanup runs for the same store
+    ok 6 - skips overlapping cleanup runs for the same store
+      ---
+      duration_ms: 1.537259
+      type: 'test'
+      ...
+    1..6
+ok 2 - Task TTL cleanup
+  ---
+  duration_ms: 10.945069
+  type: 'suite'
+  ...
+1..2
+# tests 12
+# suites 2
+# pass 12
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 352.49333
+TAP version 13
+# (node:16778) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: Token rotation — validTokens merging
+    # Subtest: single token produces Set with 1 element
+    ok 1 - single token produces Set with 1 element
+      ---
+      duration_ms: 0.696539
+      type: 'test'
+      ...
+    # Subtest: tokens array produces Set with all elements
+    ok 2 - tokens array produces Set with all elements
+      ---
+      duration_ms: 0.124785
+      type: 'test'
+      ...
+    # Subtest: token + tokens merged and deduplicated
+    ok 3 - token + tokens merged and deduplicated
+      ---
+      duration_ms: 0.112832
+      type: 'test'
+      ...
+    # Subtest: empty token string ignored
+    ok 4 - empty token string ignored
+      ---
+      duration_ms: 0.102322
+      type: 'test'
+      ...
+    # Subtest: empty tokens array with valid token
+    ok 5 - empty tokens array with valid token
+      ---
+      duration_ms: 0.141156
+      type: 'test'
+      ...
+    # Subtest: both empty produces empty Set
+    ok 6 - both empty produces empty Set
+      ---
+      duration_ms: 0.101591
+      type: 'test'
+      ...
+    # Subtest: neither provided produces empty Set
+    ok 7 - neither provided produces empty Set
+      ---
+      duration_ms: 0.108745
+      type: 'test'
+      ...
+    # Subtest: filters out non-string and empty-string entries from tokens array
+    ok 8 - filters out non-string and empty-string entries from tokens array
+      ---
+      duration_ms: 0.133521
+      type: 'test'
+      ...
+    1..8
+ok 1 - Token rotation — validTokens merging
+  ---
+  duration_ms: 2.584347
+  type: 'suite'
+  ...
+# Subtest: Token rotation — bearer auth validation
+    # Subtest: accepts old token during rotation
+    ok 1 - accepts old token during rotation
+      ---
+      duration_ms: 0.240943
+      type: 'test'
+      ...
+    # Subtest: accepts new token during rotation
+    ok 2 - accepts new token during rotation
+      ---
+      duration_ms: 0.150503
+      type: 'test'
+      ...
+    # Subtest: rejects unknown token
+    ok 3 - rejects unknown token
+      ---
+      duration_ms: 0.099006
+      type: 'test'
+      ...
+    # Subtest: rejects missing header
+    ok 4 - rejects missing header
+      ---
+      duration_ms: 0.082115
+      type: 'test'
+      ...
+    # Subtest: rejects malformed header (no Bearer prefix)
+    ok 5 - rejects malformed header (no Bearer prefix)
+      ---
+      duration_ms: 0.102082
+      type: 'test'
+      ...
+    # Subtest: accepts any when no tokens configured
+    ok 6 - accepts any when no tokens configured
+      ---
+      duration_ms: 0.088236
+      type: 'test'
+      ...
+    # Subtest: single token backward compat
+    ok 7 - single token backward compat
+      ---
+      duration_ms: 0.083036
+      type: 'test'
+      ...
+    1..7
+ok 2 - Token rotation — bearer auth validation
+  ---
+  duration_ms: 1.164919
+  type: 'suite'
+  ...
+1..2
+# tests 15
+# suites 2
+# pass 15
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 150.192061
+TAP version 13
+# (node:16798) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: orderTransports
+    # Subtest: returns correct priority order: JSONRPC > HTTP+JSON > GRPC
+    ok 1 - returns correct priority order: JSONRPC > HTTP+JSON > GRPC
+      ---
+      duration_ms: 0.708542
+      type: 'test'
+      ...
+    # Subtest: preserves order when only one transport exists
+    ok 2 - preserves order when only one transport exists
+      ---
+      duration_ms: 0.155192
+      type: 'test'
+      ...
+    # Subtest: appends unknown transports at the end
+    ok 3 - appends unknown transports at the end
+      ---
+      duration_ms: 0.162104
+      type: 'test'
+      ...
+    # Subtest: handles empty array
+    ok 4 - handles empty array
+      ---
+      duration_ms: 0.128341
+      type: 'test'
+      ...
+    # Subtest: handles duplicates correctly
+    ok 5 - handles duplicates correctly
+      ---
+      duration_ms: 0.114104
+      type: 'test'
+      ...
+    1..5
+ok 1 - orderTransports
+  ---
+  duration_ms: 2.32019
+  type: 'suite'
+  ...
+# Subtest: isRetryableTransportError
+    # Subtest: returns true for ECONNREFUSED
+    ok 1 - returns true for ECONNREFUSED
+      ---
+      duration_ms: 0.350649
+      type: 'test'
+      ...
+    # Subtest: returns true for ECONNRESET
+    ok 2 - returns true for ECONNRESET
+      ---
+      duration_ms: 0.113604
+      type: 'test'
+      ...
+    # Subtest: returns true for ETIMEDOUT
+    ok 3 - returns true for ETIMEDOUT
+      ---
+      duration_ms: 0.111109
+      type: 'test'
+      ...
+    # Subtest: returns true for fetch failed
+    ok 4 - returns true for fetch failed
+      ---
+      duration_ms: 0.155001
+      type: 'test'
+      ...
+    # Subtest: returns true for timeout errors
+    ok 5 - returns true for timeout errors
+      ---
+      duration_ms: 0.124715
+      type: 'test'
+      ...
+    # Subtest: returns true for DNS / ENOTFOUND errors
+    ok 6 - returns true for DNS / ENOTFOUND errors
+      ---
+      duration_ms: 0.100659
+      type: 'test'
+      ...
+    # Subtest: returns true for gRPC UNAVAILABLE
+    ok 7 - returns true for gRPC UNAVAILABLE
+      ---
+      duration_ms: 0.093476
+      type: 'test'
+      ...
+    # Subtest: returns true for gRPC DEADLINE_EXCEEDED
+    ok 8 - returns true for gRPC DEADLINE_EXCEEDED
+      ---
+      duration_ms: 0.078237
+      type: 'test'
+      ...
+    # Subtest: returns true for 500 status code object
+    ok 9 - returns true for 500 status code object
+      ---
+      duration_ms: 0.070272
+      type: 'test'
+      ...
+    # Subtest: returns true for 502 status code object
+    ok 10 - returns true for 502 status code object
+      ---
+      duration_ms: 0.061185
+      type: 'test'
+      ...
+    # Subtest: returns true for 503 status code object
+    ok 11 - returns true for 503 status code object
+      ---
+      duration_ms: 0.057899
+      type: 'test'
+      ...
+    # Subtest: returns true for 429 rate limit
+    ok 12 - returns true for 429 rate limit
+      ---
+      duration_ms: 0.05306
+      type: 'test'
+      ...
+    # Subtest: returns false for 401 Unauthorized
+    ok 13 - returns false for 401 Unauthorized
+      ---
+      duration_ms: 0.052559
+      type: 'test'
+      ...
+    # Subtest: returns false for 403 Forbidden
+    ok 14 - returns false for 403 Forbidden
+      ---
+      duration_ms: 0.051747
+      type: 'test'
+      ...
+    # Subtest: returns false for 400 Bad Request
+    ok 15 - returns false for 400 Bad Request
+      ---
+      duration_ms: 0.059341
+      type: 'test'
+      ...
+    # Subtest: returns false for 404 Not Found
+    ok 16 - returns false for 404 Not Found
+      ---
+      duration_ms: 0.055995
+      type: 'test'
+      ...
+    # Subtest: returns false for non-network Error
+    ok 17 - returns false for non-network Error
+      ---
+      duration_ms: 0.090009
+      type: 'test'
+      ...
+    # Subtest: returns false for auth-related Error messages
+    ok 18 - returns false for auth-related Error messages
+      ---
+      duration_ms: 0.06345
+      type: 'test'
+      ...
+    # Subtest: returns false for null
+    ok 19 - returns false for null
+      ---
+      duration_ms: 0.05872
+      type: 'test'
+      ...
+    # Subtest: returns false for undefined
+    ok 20 - returns false for undefined
+      ---
+      duration_ms: 0.051457
+      type: 'test'
+      ...
+    # Subtest: returns false for unknown object shape
+    ok 21 - returns false for unknown object shape
+      ---
+      duration_ms: 0.059893
+      type: 'test'
+      ...
+    1..21
+ok 2 - isRetryableTransportError
+  ---
+  duration_ms: 2.949072
+  type: 'suite'
+  ...
+# Subtest: transport fallback scenario
+    # Subtest: first transport fails with connection error, second succeeds
+    ok 1 - first transport fails with connection error, second succeeds
+      ---
+      duration_ms: 0.137138
+      type: 'test'
+      ...
+    # Subtest: does not fall back on auth error (401)
+    ok 2 - does not fall back on auth error (401)
+      ---
+      duration_ms: 0.077335
+      type: 'test'
+      ...
+    # Subtest: all transports fail → returns the last error
+    ok 3 - all transports fail → returns the last error
+      ---
+      duration_ms: 0.154901
+      type: 'test'
+      ...
+    1..3
+ok 3 - transport fallback scenario
+  ---
+  duration_ms: 0.468952
+  type: 'suite'
+  ...
+# Subtest: TransportStats
+    # Subtest: returns optimistic defaults for unknown transports
+    ok 1 - returns optimistic defaults for unknown transports
+      ---
+      duration_ms: 0.183365
+      type: 'test'
+      ...
+    # Subtest: tracks success rate across recorded outcomes
+    ok 2 - tracks success rate across recorded outcomes
+      ---
+      duration_ms: 0.126557
+      type: 'test'
+      ...
+    # Subtest: computes average latency from successful calls only
+    ok 3 - computes average latency from successful calls only
+      ---
+      duration_ms: 0.089257
+      type: 'test'
+      ...
+    # Subtest: respects sliding window size
+    ok 4 - respects sliding window size
+      ---
+      duration_ms: 0.081844
+      type: 'test'
+      ...
+    # Subtest: score penalizes high latency
+    ok 5 - score penalizes high latency
+      ---
+      duration_ms: 0.077656
+      type: 'test'
+      ...
+    # Subtest: score penalizes low success rate
+    ok 6 - score penalizes low success rate
+      ---
+      duration_ms: 0.088436
+      type: 'test'
+      ...
+    # Subtest: clear removes all records
+    ok 7 - clear removes all records
+      ---
+      duration_ms: 0.087625
+      type: 'test'
+      ...
+    1..7
+ok 4 - TransportStats
+  ---
+  duration_ms: 0.903298
+  type: 'suite'
+  ...
+# Subtest: adaptiveOrderTransports
+    # Subtest: orders by score when stats differ
+    ok 1 - orders by score when stats differ
+      ---
+      duration_ms: 0.166473
+      type: 'test'
+      ...
+    # Subtest: falls back to static priority when scores are equal
+    ok 2 - falls back to static priority when scores are equal
+      ---
+      duration_ms: 0.081063
+      type: 'test'
+      ...
+    # Subtest: does not mutate the input array
+    ok 3 - does not mutate the input array
+      ---
+      duration_ms: 0.516821
+      type: 'test'
+      ...
+    1..3
+ok 5 - adaptiveOrderTransports
+  ---
+  duration_ms: 0.854957
+  type: 'suite'
+  ...
+1..5
+# tests 39
+# suites 5
+# pass 39
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 157.988333
+TAP version 13
+# (node:16818) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: extractUrlsFromText – markdown links
+    # Subtest: extracts URL from a markdown link with file extension
+    ok 1 - extracts URL from a markdown link with file extension
+      ---
+      duration_ms: 1.405311
+      type: 'test'
+      ...
+    # Subtest: extracts multiple markdown links
+    ok 2 - extracts multiple markdown links
+      ---
+      duration_ms: 0.154681
+      type: 'test'
+      ...
+    # Subtest: handles markdown link with query string
+    ok 3 - handles markdown link with query string
+      ---
+      duration_ms: 0.114305
+      type: 'test'
+      ...
+    1..3
+ok 1 - extractUrlsFromText – markdown links
+  ---
+  duration_ms: 2.642937
+  type: 'suite'
+  ...
+# Subtest: extractUrlsFromText – bare URLs
+    # Subtest: extracts a bare URL with file extension
+    ok 1 - extracts a bare URL with file extension
+      ---
+      duration_ms: 0.171593
+      type: 'test'
+      ...
+    # Subtest: extracts http:// bare URL
+    ok 2 - extracts http:// bare URL
+      ---
+      duration_ms: 0.118402
+      type: 'test'
+      ...
+    # Subtest: extracts bare URL with path segments
+    ok 3 - extracts bare URL with path segments
+      ---
+      duration_ms: 0.124163
+      type: 'test'
+      ...
+    1..3
+ok 2 - extractUrlsFromText – bare URLs
+  ---
+  duration_ms: 0.607201
+  type: 'suite'
+  ...
+# Subtest: extractUrlsFromText – deduplication
+    # Subtest: returns each URL only once when it appears multiple times
+    ok 1 - returns each URL only once when it appears multiple times
+      ---
+      duration_ms: 0.162646
+      type: 'test'
+      ...
+    # Subtest: deduplicates across markdown and bare occurrences
+    ok 2 - deduplicates across markdown and bare occurrences
+      ---
+      duration_ms: 0.11717
+      type: 'test'
+      ...
+    1..2
+ok 3 - extractUrlsFromText – deduplication
+  ---
+  duration_ms: 0.470314
+  type: 'suite'
+  ...
+# Subtest: extractUrlsFromText – mediaUrls exclusion
+    # Subtest: excludes URLs already present in existingUrls
+    ok 1 - excludes URLs already present in existingUrls
+      ---
+      duration_ms: 0.156444
+      type: 'test'
+      ...
+    # Subtest: keeps URLs not in existingUrls while excluding those that are
+    ok 2 - keeps URLs not in existingUrls while excluding those that are
+      ---
+      duration_ms: 0.15984
+      type: 'test'
+      ...
+    1..2
+ok 4 - extractUrlsFromText – mediaUrls exclusion
+  ---
+  duration_ms: 0.428736
+  type: 'suite'
+  ...
+# Subtest: extractUrlsFromText – non-file URLs ignored
+    # Subtest: does NOT extract plain webpage URLs without file extension
+    ok 1 - does NOT extract plain webpage URLs without file extension
+      ---
+      duration_ms: 0.124644
+      type: 'test'
+      ...
+    # Subtest: does NOT extract markdown links to web pages
+    ok 2 - does NOT extract markdown links to web pages
+      ---
+      duration_ms: 0.092614
+      type: 'test'
+      ...
+    # Subtest: does NOT extract URLs ending with unrecognized extensions
+    ok 3 - does NOT extract URLs ending with unrecognized extensions
+      ---
+      duration_ms: 0.100769
+      type: 'test'
+      ...
+    1..3
+ok 5 - extractUrlsFromText – non-file URLs ignored
+  ---
+  duration_ms: 0.434116
+  type: 'suite'
+  ...
+# Subtest: extractUrlsFromText – mixed content
+    # Subtest: extracts file URLs from text with multiple markdown links and bare URLs
+    ok 1 - extracts file URLs from text with multiple markdown links and bare URLs
+      ---
+      duration_ms: 0.137698
+      type: 'test'
+      ...
+    # Subtest: handles mixed content with existingUrls filtering
+    ok 2 - handles mixed content with existingUrls filtering
+      ---
+      duration_ms: 0.077526
+      type: 'test'
+      ...
+    # Subtest: returns empty array when text has no URLs
+    ok 3 - returns empty array when text has no URLs
+      ---
+      duration_ms: 0.064181
+      type: 'test'
+      ...
+    # Subtest: returns empty array for empty string
+    ok 4 - returns empty array for empty string
+      ---
+      duration_ms: 0.075472
+      type: 'test'
+      ...
+    1..4
+ok 6 - extractUrlsFromText – mixed content
+  ---
+  duration_ms: 0.495602
+  type: 'suite'
+  ...
+1..6
+# tests 17
+# suites 6
+# pass 17
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 162.88243
+TAP version 13
+# /tmp/doxa_a2a_inspect/tests/wire-v1.0.test.ts:35
+#   ClientFactory,
+#   ^
+# SyntaxError: The requested module '@a2a-js/sdk' does not provide an export named 'ClientFactory'
+#     at \#asyncInstantiate (node:internal/modules/esm/module_job:463:21)
+#     at async ModuleJob.run (node:internal/modules/esm/module_job:561:5)
+#     at async node:internal/modules/esm/loader:650:26
+#     at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+# Node.js v26.5.1
+# Subtest: tests/wire-v1.0.test.ts
+not ok 1 - tests/wire-v1.0.test.ts
+  ---
+  duration_ms: 115.61937
+  type: 'test'
+  location: '/tmp/doxa_a2a_inspect/tests/wire-v1.0.test.ts:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 121.828839
+TAP version 13
+# (node:16858) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+# (Use `node --trace-deprecation ...` to show where the warning was created)
+# Subtest: GatewayRpcConnectionPool
+    # Subtest: creates a new connection on first acquire
+    ok 1 - creates a new connection on first acquire
+      ---
+      duration_ms: 21.359681
+      type: 'test'
+      ...
+    # Subtest: reuses the same connection on second acquire
+    ok 2 - reuses the same connection on second acquire
+      ---
+      duration_ms: 3.593543
+      type: 'test'
+      ...
+    # Subtest: creates separate connections for different configs
+    ok 3 - creates separate connections for different configs
+      ---
+      duration_ms: 3.962908
+      type: 'test'
+      ...
+    # Subtest: tracks hit rate correctly
+    ok 4 - tracks hit rate correctly
+      ---
+      duration_ms: 2.383319
+      type: 'test'
+      ...
+    # Subtest: evicts idle connections after idleTimeoutMs
+    ok 5 - evicts idle connections after idleTimeoutMs
+      ---
+      duration_ms: 403.047605
+      type: 'test'
+      ...
+    # Subtest: resets eviction timer on release
+    ok 6 - resets eviction timer on release
+      ---
+      duration_ms: 553.450212
+      type: 'test'
+      ...
+    # Subtest: rejects acquire after destroy
+    ok 7 - rejects acquire after destroy
+      ---
+      duration_ms: 1.190898
+      type: 'test'
+      ...
+    # Subtest: destroy closes all connections
+    ok 8 - destroy closes all connections
+      ---
+      duration_ms: 3.777128
+      type: 'test'
+      ...
+    # Subtest: double destroy is safe
+    ok 9 - double destroy is safe
+      ---
+      duration_ms: 0.530487
+      type: 'test'
+      ...
+    # Subtest: reconnects when existing connection is dead
+    ok 10 - reconnects when existing connection is dead
+      ---
+      duration_ms: 53.580482
+      type: 'test'
+      ...
+    # Subtest: reports correct active/idle counts
+    ok 11 - reports correct active/idle counts
+      ---
+      duration_ms: 1.823797
+      type: 'test'
+      ...
+    # Subtest: concurrent acquire: connection is not evicted while still in use
+    ok 12 - concurrent acquire: connection is not evicted while still in use
+      ---
+      duration_ms: 703.322875
+      type: 'test'
+      ...
+    # Subtest: reuses connection for many sequential dispatches
+    ok 13 - reuses connection for many sequential dispatches
+      ---
+      duration_ms: 2.577444
+      type: 'test'
+      ...
+    1..13
+ok 1 - GatewayRpcConnectionPool
+  ---
+  duration_ms: 1756.370917
+  type: 'suite'
+  ...
+1..1
+# tests 13
+# suites 1
+# pass 13
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1940.064397

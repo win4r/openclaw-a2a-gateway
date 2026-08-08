@@ -1,0 +1,7 @@
+POST-RED-INSERTION @ 2026-08-06T11:38:08+00:00
+  passing:   513
+  failing:   1
+  cancelled: 5
+  files with new failures or zero passes:
+    wire-v1.0.test.ts (pass=0 fail=1) 	
+    
