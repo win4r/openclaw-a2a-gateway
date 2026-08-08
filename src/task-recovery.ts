@@ -72,8 +72,9 @@ export async function recoverStaleTasks(
           role: "agent",
           parts: [
             {
-              kind: "text",
-              text: `gateway restarted before task completed (was: ${state})`,
+              content: { $case: "text", value: `gateway restarted before task completed (was: ${state})` },
+              filename: "",
+              mediaType: "text/plain",
             },
           ],
         };

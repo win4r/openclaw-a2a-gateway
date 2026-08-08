@@ -49,27 +49,49 @@ export function buildAgentCard(config: GatewayConfig): AgentCard {
     ? `${new URL(configuredUrl || fallbackUrl).origin}`
     : `${grpcHost}:${grpcPort}`;
 
+  const jsonRpcUrl = configuredUrl || fallbackUrl;
+  const restUrl = `${new URL(configuredUrl || fallbackUrl).origin}/a2a/rest`;
+
   return {
-    protocolVersion: "0.3.0",
+    protocolVersion: "1.0",
     version: "1.0.0",
     name: agentCard.name || "OpenClaw A2A Gateway",
     description: agentCard.description || "A2A bridge for OpenClaw agents",
-    url: configuredUrl || fallbackUrl,
+    url: jsonRpcUrl,
     skills: (agentCard.skills || []).map((entry, index) => toSkill(entry, index)),
     capabilities: {
       streaming: true,
       pushNotifications: false,
-      stateTransitionHistory: false,
+      extensions: [],
     },
     securitySchemes,
-    security,
-    supportsAuthenticatedExtendedCard: false,
-    defaultInputModes: ["text"],
-    defaultOutputModes: ["text"],
+    securityRequirements: [],
+    defaultInputModes: ["text/plain"],
+    defaultOutputModes: ["text/plain"],
+    // v1.0 protocol — advertised interfaces. Order matters: first
+    // entry is the preferred one. v0.3 entry second so legacy
+    // peers (Phronesis pre-v1.0) can still discover us when they
+    // walk the card and pick the matching protocolVersion.
+    supportedInterfaces: [
+      {
+        url: jsonRpcUrl,
+        protocolBinding: "JSONRPC",
+        tenant: "",
+        protocolVersion: "1.0",
+      },
+      {
+        url: jsonRpcUrl,
+        protocolBinding: "JSONRPC",
+        tenant: "",
+        protocolVersion: "0.3",
+      },
+    ],
+    // Legacy v0.3 transport list. Preserved verbatim for backward
+    // compat with tools that still read `additionalInterfaces[]`.
     additionalInterfaces: [
-      { url: configuredUrl || fallbackUrl, transport: "JSONRPC" },
-      { url: `${new URL(configuredUrl || fallbackUrl).origin}/a2a/rest`, transport: "HTTP+JSON" },
+      { url: jsonRpcUrl, transport: "JSONRPC" },
+      { url: restUrl, transport: "HTTP+JSON" },
       { url: grpcProxy, transport: "GRPC" },
     ],
-  };
+  } as unknown as AgentCard;
 }

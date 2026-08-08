@@ -123,9 +123,9 @@ export class A2AClient {
     const options = ClientFactoryOptions.createFrom(ClientFactoryOptions.default, {
       cardResolver: new DefaultAgentCardResolver({ fetchImpl: authFetch }),
       transports: [
-        new JsonRpcTransportFactory({ fetchImpl: authFetch }),
-        new RestTransportFactory({ fetchImpl: authFetch }),
-        new GrpcTransportFactory(),
+        new JsonRpcTransportFactory({ fetchImpl: authFetch, legacyCompat: { enabled: true } }),
+        new RestTransportFactory({ fetchImpl: authFetch, legacyCompat: { enabled: true } }),
+        new GrpcTransportFactory({ legacyCompat: { enabled: true } }),
       ],
     });
 
@@ -233,7 +233,11 @@ export class A2AClient {
       messageId: (message.messageId as string) || uuidv4(),
       role: (message.role as Message["role"]) || "user",
       parts: (message.parts as Message["parts"]) || [
-        { kind: "text", text: String(message.text || message.message || "") },
+        {
+          content: { $case: "text", value: String(message.text || message.message || "") },
+          filename: "",
+          mediaType: "text/plain",
+        },
       ],
     };
 
@@ -432,17 +436,17 @@ export class A2AClient {
 
     switch (endpoint.transport) {
       case "JSONRPC": {
-        const factory = new JsonRpcTransportFactory({ fetchImpl: authFetch });
+        const factory = new JsonRpcTransportFactory({ fetchImpl: authFetch, legacyCompat: { enabled: true } });
         transport = await factory.create(endpoint.url, {} as any);
         break;
       }
       case "HTTP+JSON": {
-        const factory = new RestTransportFactory({ fetchImpl: authFetch });
+        const factory = new RestTransportFactory({ fetchImpl: authFetch, legacyCompat: { enabled: true } });
         transport = await factory.create(endpoint.url, {} as any);
         break;
       }
       case "GRPC": {
-        const factory = new GrpcTransportFactory();
+        const factory = new GrpcTransportFactory({ legacyCompat: { enabled: true } });
         transport = await factory.create(endpoint.url, {} as any);
         break;
       }

@@ -1,11 +1,12 @@
 import { v4 as uuidv4 } from "uuid";
 
 import type { Message, Task } from "@a2a-js/sdk";
-import type {
-  AgentExecutionEvent,
-  AgentExecutor,
-  ExecutionEventBus,
-  RequestContext,
+import {
+  AgentEvent,
+  type AgentExecutionEvent,
+  type AgentExecutor,
+  type ExecutionEventBus,
+  type RequestContext,
 } from "@a2a-js/sdk/server";
 
 import { GatewayTelemetry } from "./telemetry.js";
@@ -33,7 +34,11 @@ function statusMessage(contextId: string, text: string): Message {
     messageId: uuidv4(),
     role: "agent",
     contextId,
-    parts: [{ kind: "text", text }],
+    parts: [{
+      content: { $case: "text", value: text },
+      filename: "",
+      mediaType: "text/plain",
+    }],
   };
 }
 
@@ -131,11 +136,13 @@ export class QueueingAgentExecutor implements AgentExecutor {
           this.queue.length,
         );
         eventBus.publish(
-          taskEvent(
-            requestContext.taskId,
-            requestContext.contextId,
-            "rejected",
-            "Gateway is overloaded; queue limit reached",
+          AgentEvent.task(
+            taskEvent(
+              requestContext.taskId,
+              requestContext.contextId,
+              "rejected",
+              "Gateway is overloaded; queue limit reached",
+            ),
           ),
         );
         eventBus.finished();
@@ -151,11 +158,13 @@ export class QueueingAgentExecutor implements AgentExecutor {
         this.queue.length,
       );
       eventBus.publish(
-        taskEvent(
-          requestContext.taskId,
-          requestContext.contextId,
-          "submitted",
-          `Queued for execution (position ${this.queue.length})`,
+        AgentEvent.task(
+          taskEvent(
+            requestContext.taskId,
+            requestContext.contextId,
+            "submitted",
+            `Queued for execution (position ${this.queue.length})`,
+          ),
         ),
       );
     });
@@ -168,7 +177,9 @@ export class QueueingAgentExecutor implements AgentExecutor {
       if (entry) {
         this.pendingByTaskId.delete(taskId);
         entry.eventBus.publish(
-          taskEvent(taskId, entry.requestContext.contextId, "canceled", "Task canceled while queued"),
+          AgentEvent.task(
+            taskEvent(taskId, entry.requestContext.contextId, "canceled", "Task canceled while queued"),
+          ),
         );
         entry.eventBus.finished();
         entry.resolve();
@@ -230,9 +241,13 @@ export class QueueingAgentExecutor implements AgentExecutor {
       ) {
         finalState = status.state;
         if (status.state !== "completed") {
+          // v1.0 Part shape: read content.value when $case is "text".
+          const firstPart = status.message?.parts?.[0] as
+            | { content?: { $case?: string; value?: unknown } }
+            | undefined;
           finalErrorMessage =
-            typeof status.message?.parts?.[0] === "object" && status.message.parts[0]?.kind === "text"
-              ? status.message.parts[0].text
+            firstPart?.content?.$case === "text" && typeof firstPart.content.value === "string"
+              ? firstPart.content.value
               : finalErrorMessage;
         }
       }
