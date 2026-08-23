@@ -13,6 +13,73 @@ import type {
   A2ADestination,
   MessageType,
 } from "./types-internal.js";
+import {
+  createChildTraceparent,
+  type W3CTraceContext,
+} from "./traceparent.js";
+
+/**
+ * Convenience: split a parsed W3C trace context into the
+ * `{ trace_id, span_id }` pair carried on the gateway-internal envelope.
+ *
+ * The `trace_id`/`span_id` fields on the envelope mirror the
+ * `traceparent` carrier: the receiving gateway uses them to stitch the
+ * custom-protocol hop back into the upstream OTel trace.  Callers
+ * usually want the result of `createChildTraceparent(getActiveTrace())`
+ * fed straight into `createEnvelope`'s opts.
+ */
+export function w3cToEnvelopeTraceParts(
+  ctx: W3CTraceContext | undefined,
+): { trace_id?: string; span_id?: string } | undefined {
+  if (!ctx) {
+    return undefined;
+  }
+  return {
+    trace_id: ctx.traceId,
+    span_id: ctx.spanId,
+  };
+}
+
+/**
+ * Build a child `W3CTraceContext` from a parent envelope's
+ * `trace_id`/`span_id`.  Useful at hop boundaries: each hop should
+ * generate its own span id so the link between hops shows up clearly
+ * in any tracing UI.
+ *
+ * Returns `undefined` when neither field is present on the parent
+ * envelope — call sites can then mint a fresh root trace instead.
+ */
+export function envelopeToW3CTraceparent(
+  envelope: Pick<A2AEnvelope, "trace_id" | "span_id">,
+): W3CTraceContext | undefined {
+  if (!envelope.trace_id || !envelope.span_id) {
+    return undefined;
+  }
+  // Trust the upstream trace id verbatim — same constraints (32 lowercase
+  // hex chars, not all-zero) as W3C.  We don't repackage the upstream
+  // span id; the gate creates a child span when entering the next hop.
+  return {
+    version: "00",
+    traceId: envelope.trace_id,
+    spanId: envelope.span_id,
+    traceFlags: "01",
+  };
+}
+
+/**
+ * Mint a brand-new `(trace_id, span_id)` pair (root trace), returning
+ * the same shape as `createEnvelope` expects for its `trace_id` /
+ * `span_id` opts.  Equivalent to wrapping the W3C helpers for envelope
+ * authoring.  Provided so callers never need to reach into
+ * `traceparent.ts` directly.
+ */
+export function generateEnvelopeTracePair(): { trace_id: string; span_id: string } {
+  const ctx = createChildTraceparent();
+  return {
+    trace_id: ctx.traceId,
+    span_id: ctx.spanId,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Error codes

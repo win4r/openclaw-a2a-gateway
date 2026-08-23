@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **OpenClaw ≤2026.3.x compatibility** — older Gateway builds validate `req` frames with `closedObject` and reject unknown top-level keys (`invalid request frame: at root: unexpected property 'traceparent'`).  The `GatewayRpcConnection` now negotiates `maxProtocol: 5` during `connect`, captures the negotiated `protocol` from the response, and only stamps the top-level `traceparent` field on `req` frames when `negotiated >= minTraceparentProtocol` (default 5).  Per-connection isolation means legacy and modern Gateways can coexist in the same pool without surprise rejections.  See `docs/traceparent.md` "Gateway protocol compatibility" and `tests/traceparent-protocol-gating.test.ts`.
+
+### Added
+
+- **End-to-end W3C `traceparent` propagation** — every outbound IPC `req` frame on `ws://127.0.0.1:18789` now carries a top-level `traceparent` field (`00-<traceId>-<spanId>-<flags>`, ≤ 128 chars), outbound A2A peer calls (REST/JSON-RPC/gRPC) carry the same value as a header / metadata entry, **and** inbound `traceparent` HTTP headers / gRPC metadata entries are lifted into an `AsyncLocalStorage` store so they propagate all the way through the executor's dispatch without requiring callers to put `traceparent` in A2A `metadata`. See `docs/traceparent.md` for the full contract.
+- New `src/internal/traceparent.ts` utility (W3C Level-1 formatter / parser / child / validator) plus the process-global `AsyncLocalStorage` upstream-trace store. Drop-in compatible with `src/infra/diagnostic-trace-context.ts` from OpenClaw core via the `setTraceparentHooks({ getUpstreamTrace })` and `setTraceparentHooks({ randomBytes })` hooks.
+- New `src/internal/grpc-traceparent.ts` server-side interceptor (`wrapGrpcServiceWithTraceparent`) that lifts the inbound `traceparent` metadata entry into the ALS scope for every method on the A2A `A2AServiceServer`.
+- New `index.ts` express middleware (`traceparentMiddleware`) that lifts the inbound `traceparent` HTTP header into the ALS scope for both JSON-RPC and REST routes.
+- `a2a.send` gateway method and `a2a_send_file` tool now resolve their upstream trace from the ALS store, so peer→plugin→peer calls stay on the same trace.
+- New `observability.traceparent.{enabled, propagateOnConnect, minProtocolRequired, maxProtocol}` config switches; `minProtocolRequired` defaults to 5 (the version that introduces `traceparent` in the schema) so older Gateway builds get the silent-fallback path automatically.
+- W3C ↔ gateway-internal envelope helpers (`w3cToEnvelopeTraceParts`, `envelopeToW3CTraceparent`, `generateEnvelopeTracePair`) in `src/internal/envelope.ts`.
+- `npm run verify:traceparent` — single-command end-to-end verification harness with `--legacy-gateway` flag to test the silent-fallback path.  See `docs/traceparent-verification.md`.
+- 64 new tests in `tests/traceparent*.test.ts` (utility, integration, inbound HTTP+gRPC→ALS, and protocol-version gating).
+
 ## [1.5.1] - 2026-07-04
 
 ### Fixed

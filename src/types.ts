@@ -20,6 +20,29 @@ export type { OpenClawPluginApi, PluginLogger, OpenClawConfig } from "openclaw/p
 export type InboundAuth = "none" | "bearer";
 export type PeerAuthType = "bearer" | "apiKey";
 
+/**
+ * Subset of `ObservabilityConfig` devoted to W3C `traceparent` propagation.
+ *
+ * Lives next to `GatewayConfig["observability"]["traceparent"]` so the
+ * parser in `index.ts` can declare the shape with `satisfies` while the
+ * runtime keeps a single source of truth.
+ */
+export interface ObservabilityConfigTraceparent {
+  enabled: boolean;
+  propagateOnConnect?: boolean;
+  /**
+   * Negotiated `protocol` floor for traceparent gating.  When the
+   * Gateway negotiates below this number, `traceparent` is dropped
+   * from outgoing frames.  Default 5.
+   */
+  minProtocolRequired?: number;
+  /**
+   * Highest protocol version the plugin advertises during `connect`.
+   * Default 5.
+   */
+  maxProtocol?: number;
+}
+
 export interface PeerAuthConfig {
   type: PeerAuthType;
   token: string;
@@ -113,6 +136,48 @@ export interface GatewayConfig {
     metricsPath: string;
     metricsAuth: "none" | "bearer";
     auditLogPath: string;
+    /**
+     * W3C traceparent propagation switch.
+     *
+     * `enabled` defaults to true.  When set to false, the plugin still
+     * connects and dispatches normally — it just stops stamping
+     * `traceparent` onto outbound IPC frames and peer HTTP/gRPC calls.
+     *
+     * `propagateOnConnect` is reserved for forward compatibility: today
+     * the Gateway ignores `traceparent` on the initial `connect` frame
+     * (per `docs/gateway/opentelemetry.md`), so this switch is purely
+     * diagnostic.
+     *
+     * `minProtocolRequired` and `maxProtocol` gate the protocol
+     * negotiation range during `connect`.  When the negotiated
+     * `protocol` is below `minProtocolRequired`, the plugin drops
+     * `traceparent` from subsequent `req` frames — this avoids the
+     *    `invalid request frame: at root: unexpected property 'traceparent'`
+     * error older Gateway builds return when their `RequestFrameSchema`
+     * strict-validates top-level keys.  Defaults: `minProtocolRequired=5`
+     * (the version that introduces `traceparent` in the schema),
+     * `maxProtocol=5`.
+     *
+     * @see src/internal/traceparent.ts for the formatter / validator.
+     * @see docs/traceparent.md for the protocol-version dependency.
+     */
+    traceparent?: {
+      enabled: boolean;
+      propagateOnConnect?: boolean;
+      /**
+       * Negotiated `protocol` floor for traceparent gating.  When the
+       * Gateway negotiates below this number, `traceparent` is dropped
+       * from outgoing frames so the schema-validated Gateway doesn't
+       * reject them as "unexpected property".  Default 5.
+       */
+      minProtocolRequired?: number;
+      /**
+       * Highest protocol version the plugin advertises during
+       * `connect`.  The Gateway picks a value in
+       * `[minProtocol=3, maxProtocol]`.  Default 5.
+       */
+      maxProtocol?: number;
+    };
   };
   timeouts?: {
     /**

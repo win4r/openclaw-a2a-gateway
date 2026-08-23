@@ -41,6 +41,7 @@ A production-ready [OpenClaw](https://github.com/openclaw/openclaw) plugin that 
 - **JSONL audit trail** for all A2A calls and security events
 - **Telemetry metrics** endpoint with optional bearer auth
 - **Durable task store** on disk with TTL cleanup and concurrency limits
+- **W3C `traceparent` propagation**: every outbound IPC frame on the local `ws://127.0.0.1:18789` socket carries a per-call `traceparent` at the top level, and outbound A2A peer calls (REST/JSON-RPC/gRPC) carry the same value as a header / metadata entry — the plugin mirrors `docs/gateway/opentelemetry.md` so all internal `agent` / `harness` / `model.call` / `provider` / `tool.execution` / `exec` spans land on the same distributed trace. See [`docs/traceparent.md`](./docs/traceparent.md). **Verify end-to-end** with `npm run verify:traceparent` (see [`docs/traceparent-verification.md`](./docs/traceparent-verification.md) for the full ladder).
 
 ## Architecture
 

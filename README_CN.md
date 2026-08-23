@@ -38,6 +38,7 @@
 - **JSONL 审计日志**，记录所有 A2A 调用和安全事件
 - **Telemetry 指标端点**，可选 Bearer 认证
 - **磁盘持久化任务存储**，TTL 自动清理 + 并发限制
+- **W3C `traceparent` 透传**：每条通过本地 `ws://127.0.0.1:18789` 出站的 IPC `req` 帧都在顶层携带一个按调用生成的 `traceparent`，出站 A2A peer 调用（REST/JSON-RPC/gRPC）同步携带同一值（分别是 HTTP header / gRPC metadata），完全对照 `docs/gateway/opentelemetry.md` 的契约，让内部 `agent` / `harness` / `model.call` / `provider` / `tool.execution` / `exec` 全部落在同一条分布式 trace 上。一行命令验证：`npm run verify:traceparent`。详见 [`docs/traceparent.md`](./docs/traceparent.md) + [`docs/traceparent-verification.md`](./docs/traceparent-verification.md)。
 
 ## 架构
 
