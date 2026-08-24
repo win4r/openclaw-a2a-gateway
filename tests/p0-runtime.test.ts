@@ -158,4 +158,26 @@ describe("P0 runtime components", () => {
     assert.equal(snapshot.tasks.rejected, 1);
     assert.equal(snapshot.tasks.queued, 1);
   });
+
+  it("QueueingAgentExecutor closes a resource-owning delegate", () => {
+    const telemetry = new GatewayTelemetry(silentLogger(), { structuredLogs: false });
+    let closed = false;
+    const delegate: AgentExecutor & { close(): void } = {
+      async execute() {},
+      async cancelTask(_taskId, eventBus) {
+        eventBus.finished();
+      },
+      close() {
+        closed = true;
+      },
+    };
+
+    const executor = new QueueingAgentExecutor(delegate, telemetry, {
+      maxConcurrentTasks: 1,
+      maxQueuedTasks: 0,
+    });
+
+    executor.close();
+    assert.equal(closed, true);
+  });
 });

@@ -107,6 +107,12 @@ export class QueueingAgentExecutor implements AgentExecutor {
     };
   }
 
+  /** Release resources owned by delegates that expose an explicit close hook. */
+  close(): void {
+    const delegate = this.delegate as AgentExecutor & { close?: () => void };
+    delegate.close?.();
+  }
+
   execute(requestContext: RequestContext, eventBus: ExecutionEventBus): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const entry: QueuedTaskEntry = {

@@ -1020,6 +1020,7 @@ const plugin = {
         healthManager?.stop();
         auditLogger.close();
         client.destroy();
+        executor.close();
 
         // Stop task cleanup timer
         if (cleanupTimer) {

@@ -1216,6 +1216,7 @@ export class GatewayRpcConnectionPool {
         this.stopHeartbeat(entry);
       }
     }, this.heartbeatIntervalMs);
+    entry.heartbeatTimer.unref?.();
   }
 
   private stopHeartbeat(entry: PooledConnection): void {
@@ -1232,6 +1233,7 @@ export class GatewayRpcConnectionPool {
         this.evictConnection(entry);
       }
     }, this.idleTimeoutMs);
+    entry.evictionTimer.unref?.();
   }
 
   private stopEviction(entry: PooledConnection): void {
