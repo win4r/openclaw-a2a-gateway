@@ -10,7 +10,9 @@ import {
   type HttpHeaders,
 } from "@a2a-js/sdk/client";
 import { GrpcTransportFactory } from "@a2a-js/sdk/client/grpc";
-import type { MessageSendParams, Message } from "@a2a-js/sdk";
+import { Role } from "@a2a-js/sdk";
+import type { Message, SendMessageRequest } from "@a2a-js/sdk";
+import { toV1Parts } from "./types-v1.js";
 
 import { ConnectionPool, type ConnectionPoolConfig } from "./connection-pool.js";
 import type { OutboundSendResult, PeerConfig, RetryConfig } from "./types.js";
@@ -228,21 +230,35 @@ export class A2AClient {
     // ------------------------------------------------------------------
     const targetAgentId = typeof (message as any)?.agentId === "string" ? String((message as any).agentId) : "";
 
-    const outboundMessage: any = {
-      kind: "message",
+    const role =
+      String((message as any)?.role ?? "user").toLowerCase() === "agent"
+        ? Role.ROLE_AGENT
+        : Role.ROLE_USER;
+
+    const outboundMessage: Message = {
       messageId: (message.messageId as string) || uuidv4(),
-      role: (message.role as Message["role"]) || "user",
-      parts: (message.parts as Message["parts"]) || [
-        { kind: "text", text: String(message.text || message.message || "") },
-      ],
+      contextId: typeof (message as any)?.contextId === "string" ? (message as any).contextId : "",
+      taskId: typeof (message as any)?.taskId === "string" ? (message as any).taskId : "",
+      role,
+      parts: toV1Parts(
+        (message.parts as unknown[] | undefined) ?? [
+          String(message.text || message.message || ""),
+        ],
+      ),
+      metadata: undefined,
+      extensions: [],
+      referenceTaskIds: [],
     };
 
     if (targetAgentId) {
-      outboundMessage.agentId = targetAgentId;
+      (outboundMessage as any).agentId = targetAgentId;
     }
 
-    const sendParams: MessageSendParams = {
+    const sendParams: SendMessageRequest = {
+      tenant: "",
       message: outboundMessage,
+      configuration: undefined,
+      metadata: undefined,
     };
 
     const serviceParameters: Record<string, string> = {};
@@ -270,19 +286,35 @@ export class A2AClient {
       });
       const agentCard = await resolver.resolve(baseUrl, path);
 
-      // Build transport list: main URL + additionalInterfaces
-      const mainTransport = agentCard.preferredTransport ?? "JSONRPC";
-      const allInterfaces: TransportEndpoint[] = [
-        { url: agentCard.url, transport: mainTransport },
-      ];
+      // Build transport list, normalizing BOTH card generations:
+      //   v0.3: url + preferredTransport + additionalInterfaces[]
+      //   v1:   supportedInterfaces[] ({ url, protocolBinding })
+      const legacyCard = agentCard as unknown as {
+        url?: string;
+        preferredTransport?: string;
+        additionalInterfaces?: { url?: string; transport?: string }[];
+      };
 
-      if (agentCard.additionalInterfaces) {
-        for (const iface of agentCard.additionalInterfaces) {
-          // Avoid duplicate of the main endpoint
-          if (iface.url !== agentCard.url || iface.transport !== mainTransport) {
-            allInterfaces.push({ url: iface.url, transport: iface.transport });
-          }
-        }
+      const allInterfaces: TransportEndpoint[] = [];
+      const seenEndpoints = new Set<string>();
+      const pushEndpoint = (url?: string, transport?: string) => {
+        if (!url || !transport) return;
+        const key = `${transport}:${url}`;
+        if (seenEndpoints.has(key)) return;
+        seenEndpoints.add(key);
+        allInterfaces.push({ url, transport });
+      };
+
+      // v0.3 generation first (preferred entry keeps priority), then v1.
+      pushEndpoint(legacyCard.url, legacyCard.preferredTransport ?? "JSONRPC");
+      for (const iface of legacyCard.additionalInterfaces ?? []) {
+        pushEndpoint(iface.url, iface.transport);
+      }
+      for (const iface of agentCard.supportedInterfaces ?? []) {
+        pushEndpoint(iface.url, iface.protocolBinding);
+      }
+      if (allInterfaces.length === 0) {
+        pushEndpoint(legacyCard.url, "JSONRPC");
       }
 
       // Bio-inspired: use adaptive transport ordering when we have stats
@@ -396,7 +428,7 @@ export class A2AClient {
     factory: ClientFactory,
     baseUrl: string,
     path: string,
-    sendParams: MessageSendParams,
+    sendParams: SendMessageRequest,
     requestOptions: { serviceParameters?: Record<string, string> },
   ): Promise<OutboundSendResult> {
     try {
@@ -423,7 +455,7 @@ export class A2AClient {
   private async doSendViaTransport(
     peer: PeerConfig,
     endpoint: TransportEndpoint,
-    sendParams: MessageSendParams,
+    sendParams: SendMessageRequest,
     requestOptions: { serviceParameters?: Record<string, string> },
   ): Promise<OutboundSendResult> {
     const authFetch = this.createFetch(peer);

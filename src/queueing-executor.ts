@@ -1,12 +1,15 @@
 import { v4 as uuidv4 } from "uuid";
 
-import type { Message, Task } from "@a2a-js/sdk";
+import { Role, TaskState } from "@a2a-js/sdk";
+import type { Message, Task, TaskStatus } from "@a2a-js/sdk";
 import type {
   AgentExecutionEvent,
   AgentExecutor,
   ExecutionEventBus,
   RequestContext,
 } from "@a2a-js/sdk/server";
+
+import { taskStateName, textPart, v1Message } from "./types-v1.js";
 
 import { GatewayTelemetry } from "./telemetry.js";
 import { computeSaturationDelay, type SaturationConfig } from "./saturation-model.js";
@@ -25,34 +28,56 @@ interface QueuedTaskEntry {
   reject: (error: Error) => void;
 }
 
-type TerminalTaskState = "completed" | "failed" | "canceled" | "rejected";
+/** Terminal task states that end a queued run (v1 enum values). */
+const TERMINAL_STATES: ReadonlySet<TaskState> = new Set([
+  TaskState.TASK_STATE_COMPLETED,
+  TaskState.TASK_STATE_FAILED,
+  TaskState.TASK_STATE_CANCELED,
+  TaskState.TASK_STATE_REJECTED,
+]);
 
-function statusMessage(contextId: string, text: string): Message {
-  return {
-    kind: "message",
+function statusMessage(contextId: string, taskId: string, text: string): Message {
+  return v1Message({
     messageId: uuidv4(),
-    role: "agent",
+    role: Role.ROLE_AGENT,
+    parts: [textPart(text)],
     contextId,
-    parts: [{ kind: "text", text }],
-  };
+    taskId,
+  });
 }
 
+/** Build a wrapped v1 task lifecycle event for the execution event bus. */
 function taskEvent(
   taskId: string,
   contextId: string,
-  state: Task["status"]["state"],
+  state: TaskState,
   text?: string,
-): Task {
-  return {
-    kind: "task",
+): AgentExecutionEvent {
+  const task: Task = {
     id: taskId,
     contextId,
     status: {
       state,
-      message: text ? statusMessage(contextId, text) : undefined,
+      message: text ? statusMessage(contextId, taskId, text) : undefined,
       timestamp: new Date().toISOString(),
     },
+    artifacts: [],
+    history: [],
+    metadata: undefined,
   };
+  return { kind: "task", data: task };
+}
+
+type BusListener = ((event: AgentExecutionEvent) => void) | (() => void);
+
+/** Map a v1 TaskState onto the telemetry wire name for finished tasks. */
+function terminalWire(
+  state: TaskState,
+): "completed" | "failed" | "canceled" | "rejected" {
+  if (state === TaskState.TASK_STATE_COMPLETED) return "completed";
+  if (state === TaskState.TASK_STATE_CANCELED) return "canceled";
+  if (state === TaskState.TASK_STATE_REJECTED) return "rejected";
+  return "failed";
 }
 
 function createObservedEventBus(
@@ -64,19 +89,29 @@ function createObservedEventBus(
       observer(event);
       eventBus.publish(event);
     },
-    on(eventName, listener) {
-      eventBus.on(eventName, listener);
+    on(eventName: "event" | "finished", listener: BusListener): ExecutionEventBus {
+      // Forward verbatim; the target bus owns the overload dispatch.
+      (eventBus.on as (name: "event", listener: unknown) => unknown)(
+        eventName as "event",
+        listener,
+      );
       return wrapped;
     },
-    off(eventName, listener) {
-      eventBus.off(eventName, listener);
+    off(eventName: "event" | "finished", listener: BusListener): ExecutionEventBus {
+      (eventBus.off as (name: "event", listener: unknown) => unknown)(
+        eventName as "event",
+        listener,
+      );
       return wrapped;
     },
-    once(eventName, listener) {
-      eventBus.once(eventName, listener);
+    once(eventName: "event" | "finished", listener: BusListener): ExecutionEventBus {
+      (eventBus.once as (name: "event", listener: unknown) => unknown)(
+        eventName as "event",
+        listener,
+      );
       return wrapped;
     },
-    removeAllListeners(eventName) {
+    removeAllListeners(eventName?: "event" | "finished"): ExecutionEventBus {
       eventBus.removeAllListeners(eventName);
       return wrapped;
     },
@@ -140,7 +175,7 @@ export class QueueingAgentExecutor implements AgentExecutor {
           taskEvent(
             requestContext.taskId,
             requestContext.contextId,
-            "rejected",
+            TaskState.TASK_STATE_REJECTED,
             "Gateway is overloaded; queue limit reached",
           ),
         );
@@ -160,7 +195,7 @@ export class QueueingAgentExecutor implements AgentExecutor {
         taskEvent(
           requestContext.taskId,
           requestContext.contextId,
-          "submitted",
+          TaskState.TASK_STATE_SUBMITTED,
           `Queued for execution (position ${this.queue.length})`,
         ),
       );
@@ -174,14 +209,19 @@ export class QueueingAgentExecutor implements AgentExecutor {
       if (entry) {
         this.pendingByTaskId.delete(taskId);
         entry.eventBus.publish(
-          taskEvent(taskId, entry.requestContext.contextId, "canceled", "Task canceled while queued"),
+          taskEvent(
+            taskId,
+            entry.requestContext.contextId,
+            TaskState.TASK_STATE_CANCELED,
+            "Task canceled while queued",
+          ),
         );
         entry.eventBus.finished();
         entry.resolve();
         this.telemetry.recordTaskFinish(
           taskId,
           entry.requestContext.contextId,
-          "canceled",
+          terminalWire(TaskState.TASK_STATE_CANCELED),
           0,
           this.activeTasks,
           this.queue.length,
@@ -196,7 +236,7 @@ export class QueueingAgentExecutor implements AgentExecutor {
   private async runEntry(entry: QueuedTaskEntry): Promise<void> {
     const { requestContext } = entry;
     const startedAt = Date.now();
-    let finalState: TerminalTaskState | undefined;
+    let finalState: TaskState | undefined;
     let finalErrorMessage: string | undefined;
 
     this.queueDelete(requestContext.taskId);
@@ -224,22 +264,19 @@ export class QueueingAgentExecutor implements AgentExecutor {
     );
 
     const observedBus = createObservedEventBus(entry.eventBus, (event) => {
-      const status = event.kind === "task" || event.kind === "status-update" ? event.status : undefined;
+      const data = event.data as Partial<Task> | undefined;
+      const status: TaskStatus | undefined =
+        event.kind === "task" || event.kind === "statusUpdate" ? (data?.status ?? undefined) : undefined;
       if (!status) {
         return;
       }
-      if (
-        status.state === "completed" ||
-        status.state === "failed" ||
-        status.state === "canceled" ||
-        status.state === "rejected"
-      ) {
+      if (TERMINAL_STATES.has(status.state)) {
         finalState = status.state;
-        if (status.state !== "completed") {
-          finalErrorMessage =
-            typeof status.message?.parts?.[0] === "object" && status.message.parts[0]?.kind === "text"
-              ? status.message.parts[0].text
-              : finalErrorMessage;
+        if (status.state !== TaskState.TASK_STATE_COMPLETED) {
+          const firstPart = status.message?.parts?.[0];
+          if (firstPart?.content?.$case === "text") {
+            finalErrorMessage = firstPart.content.value;
+          }
         }
       }
     });
@@ -249,7 +286,7 @@ export class QueueingAgentExecutor implements AgentExecutor {
       entry.resolve();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      finalState = finalState || "failed";
+      finalState = finalState ?? TaskState.TASK_STATE_FAILED;
       finalErrorMessage = finalErrorMessage || message;
       entry.reject(error instanceof Error ? error : new Error(message));
       return;
@@ -260,7 +297,7 @@ export class QueueingAgentExecutor implements AgentExecutor {
       this.telemetry.recordTaskFinish(
         requestContext.taskId,
         requestContext.contextId,
-        finalState || "failed",
+        terminalWire(finalState ?? TaskState.TASK_STATE_FAILED),
         Date.now() - startedAt,
         this.activeTasks,
         this.queue.length,

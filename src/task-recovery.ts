@@ -1,11 +1,19 @@
 import { randomUUID } from "node:crypto";
 
+import { Role, TaskState } from "@a2a-js/sdk";
+
 import type { FileTaskStore } from "./task-store.js";
+import { taskStateName, textPart, v1Message } from "./types-v1.js";
 
 type LoggerLike = { info: (msg: string) => void; warn: (msg: string) => void };
 
 /** Terminal states that should NOT be recovered — mirrors task-cleanup.ts */
-const TERMINAL_STATES = new Set(["completed", "failed", "canceled", "rejected"]);
+const TERMINAL_STATES = new Set<TaskState>([
+  TaskState.TASK_STATE_COMPLETED,
+  TaskState.TASK_STATE_FAILED,
+  TaskState.TASK_STATE_CANCELED,
+  TaskState.TASK_STATE_REJECTED,
+]);
 
 const ACTIVE_RECOVERIES = new WeakSet<FileTaskStore>();
 
@@ -58,25 +66,26 @@ export async function recoverStaleTasks(
           continue;
         }
 
-        const { state } = task.status;
+        const state = task.status?.state ?? TaskState.TASK_STATE_UNSPECIFIED;
         if (TERMINAL_STATES.has(state)) {
           result.skipped += 1;
           continue;
         }
 
-        task.status.state = "failed";
+        if (!task.status) {
+          task.status = { state: TaskState.TASK_STATE_FAILED, message: undefined, timestamp: undefined };
+        }
+        task.status.state = TaskState.TASK_STATE_FAILED;
         task.status.timestamp = new Date().toISOString();
-        task.status.message = {
-          kind: "message",
+        task.status.message = v1Message({
           messageId: randomUUID(),
-          role: "agent",
+          role: Role.ROLE_AGENT,
           parts: [
-            {
-              kind: "text",
-              text: `gateway restarted before task completed (was: ${state})`,
-            },
+            textPart(`gateway restarted before task completed (was: ${taskStateName(state)})`),
           ],
-        };
+          contextId: task.contextId,
+          taskId: task.id,
+        });
 
         await store.save(task);
         result.recovered += 1;
