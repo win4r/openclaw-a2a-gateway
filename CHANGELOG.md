@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - **OpenClaw ≤2026.3.x compatibility** — older Gateway builds validate `req` frames with `closedObject` and reject unknown top-level keys (`invalid request frame: at root: unexpected property 'traceparent'`).  The `GatewayRpcConnection` now negotiates `maxProtocol: 5` during `connect`, captures the negotiated `protocol` from the response, and only stamps the top-level `traceparent` field on `req` frames when `negotiated >= minTraceparentProtocol` (default 5).  Per-connection isolation means legacy and modern Gateways can coexist in the same pool without surprise rejections.  See `docs/traceparent.md` "Gateway protocol compatibility" and `tests/traceparent-protocol-gating.test.ts`.
+- **`npm run verify:traceparent` failing in production-mode installs** — the verify command used `node --import tsx scripts/verify-traceparent.mjs`, but `tsx` was only listed in `devDependencies`, and OpenClaw's plugin installer runs production-mode `npm install`s.  Promoted `tsx` to a regular `dependency` (~3 MB on disk) so the script — and `npm test` — work in every install.  Node 22.6+'s `--experimental-strip-types` was considered as an alternative, but it does not auto-resolve `.js` → `.ts` module paths, so `tsx` stays the simplest reliable runtime.
 
 ### Added
 

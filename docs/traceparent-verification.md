@@ -9,11 +9,21 @@ production observability".  Pick the one that fits your situation.
 | Layer | Tool / command | What it proves | Requires |
 |-------|----------------|----------------|----------|
 | **0.** Static check | `npm run build` | The TypeScript surface compiles cleanly under strict mode. | Node, deps |
-| **1.** Unit tests | `npm test -- tests/traceparent*.test.ts` | The `traceparent` utility (`format`, `parse`, `child`, validator) and the inbound HTTP / gRPC end-to-end logic all hold. | Node, deps |
+| **1.** Unit tests | `npm test -- tests/traceparent*.test.ts` | The `traceparent` utility (`format`, `parse`, `child`, validator) and the inbound HTTP / gRPC end-to-end logic all hold. | Node, deps (including `tsx`, which is a `dependency` so it ships with production installs of the plugin) |
 | **2.** In-process verification harness | `npm run verify:traceparent` | All four hops are exercised in one process: peer request → middleware → executor → IPC `agent` frame.  No real OpenClaw needed. | Node, deps |
 | **3.** Live curl-based smoke test | one-line curl recipe below | The plugin installed in a real OpenClaw instance propagates a `traceparent` you can observe in the OpenClaw Gateway log. | OpenClaw Gateway running, plugin installed |
 | **4.** Live two-A2A-peer chain test | `a2a-send.mjs --traceparent …` against two peers | The full peer → plugin → OpenClaw → plugin → peer chain renders as one trace in your tracing UI. | Two A2A peers, observability backend (Jaeger / Tempo / Honeycomb) |
 | **5.** Distributed-trace smoke test | OTel collector + Tracing UI | Visual confirmation that the two-A2A-peer call shows up in Jaeger / Tempo as a single trace tree. | OTel collector, tracing UI |
+
+> **Why is `tsx` a runtime dep?**  This plugin uses TypeScript source
+> files (`index.ts`, `src/**/*.ts`) and the verify / test scripts need
+> a TS-aware runtime to execute them.  Node ≥22.6 ships with
+> `--experimental-strip-types` but it does not auto-resolve `.js` →
+> `.ts` module paths, which our scripts rely on.  We therefore ship
+> `tsx` as a regular `dependency` so the verify/test commands work in
+> production-mode `npm install`s (where OpenClaw plugin installs
+> skip `devDependencies`).  The trade-off is ~3 MB on disk; the win is
+> that `npm run verify:traceparent` Just Works after every install.
 
 ---
 
