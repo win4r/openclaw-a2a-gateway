@@ -4,7 +4,7 @@ import type { AgentExecutionEvent, AgentExecutor, ExecutionEventBus, RequestCont
 import { DefaultRequestHandler, InMemoryTaskStore } from "@a2a-js/sdk/server";
 import { jsonRpcHandler, UserBuilder } from "@a2a-js/sdk/server/express";
 import { readFileSync } from "node:fs";
-import { A2AClient } from "./src/client.js";
+import { A2AClient } from "../src/client.js";
 
 const PORT = 18999;
 const base = `http://127.0.0.1:${PORT}`;
