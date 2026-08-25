@@ -12,6 +12,7 @@ import {
 import { GrpcTransportFactory } from "@a2a-js/sdk/client/grpc";
 import { Role } from "@a2a-js/sdk";
 import type { Message, SendMessageRequest } from "@a2a-js/sdk";
+import { LEGACY_METHOD_MESSAGE_SEND } from "@a2a-js/sdk/compat/v0_3";
 import { toV1Parts } from "./types-v1.js";
 
 import { ConnectionPool, type ConnectionPoolConfig } from "./connection-pool.js";
@@ -251,7 +252,9 @@ export class A2AClient {
     };
 
     if (targetAgentId) {
-      (outboundMessage as any).agentId = targetAgentId;
+      // v1 MessageFns.toJSON drops unknown fields, so route agentId through
+      // metadata for peer-side routing (OpenClaw extension).
+      outboundMessage.metadata = { ...(outboundMessage.metadata ?? {}), agentId: targetAgentId };
     }
 
     const sendParams: SendMessageRequest = {
@@ -285,6 +288,19 @@ export class A2AClient {
         fetchImpl: this.createFetch(peer),
       });
       const agentCard = await resolver.resolve(baseUrl, path);
+
+      // Legacy peer detection (#95 dual-stack): SDK 1.x transports negotiate
+      // v1 only, so speak legacy JSON-RPC directly for v0.3 peers.
+      const cardAny = agentCard as unknown as Record<string, unknown>;
+      const supportedIfaces = Array.isArray(cardAny.supportedInterfaces)
+        ? (cardAny.supportedInterfaces as Array<Record<string, unknown>>)
+        : [];
+      const cardIsLegacy =
+        supportedIfaces.length === 0 ||
+        String(cardAny.protocolVersion ?? "").startsWith("0.");
+      if (cardIsLegacy) {
+        return this.sendViaLegacyJsonRpc(peer, cardAny, outboundMessage, requestOptions);
+      }
 
       // Build transport list, normalizing BOTH card generations:
       //   v0.3: url + preferredTransport + additionalInterfaces[]
@@ -419,6 +435,101 @@ export class A2AClient {
       statusCode: 500,
       response: { error: `All transports failed for peer "${peer.name}": ${errorMessage}` },
     };
+  }
+
+  /**
+   * Legacy v0.3 peers: raw JSON-RPC "message/send" with a v0.3-shaped
+   * message. Keeps real-world 0.3 deployments working under SDK 1.x.
+   */
+  private async sendViaLegacyJsonRpc(
+    peer: PeerConfig,
+    card: Record<string, unknown>,
+    message: Message,
+    requestOptions: { serviceParameters?: Record<string, string> },
+  ): Promise<OutboundSendResult> {
+    // Use the live fetch chain (auth-wrapped, mockable) — NOT the
+    // module-captured nativeFetch, which predates any globalThis.fetch
+    // stubbing in tests/embedders.
+    const doFetch = this.createFetch(peer);
+    const endpoint = String(card.url ?? "");
+    if (!endpoint) {
+      return { ok: false, statusCode: 500, response: { error: "Legacy Agent Card has no service url" } };
+    }
+
+    const extraMeta = (message.metadata ?? {}) as Record<string, unknown>;
+
+    const legacyParts = (message.parts ?? []).map((part) => {
+      const fileMeta: Record<string, unknown> = {
+        ...(part.filename ? { name: part.filename } : {}),
+        ...(part.mediaType ? { mimeType: part.mediaType } : {}),
+      };
+      const content = part.content;
+      if (!content) return { kind: "text", text: "" };
+      switch (content.$case) {
+        case "text":
+          return { kind: "text", text: content.value };
+        case "url":
+          return { kind: "file", file: { uri: content.value, ...fileMeta } };
+        case "raw": {
+          const bytes = Buffer.from(content.value).toString("base64");
+          return { kind: "file", file: { bytes, ...fileMeta } };
+        }
+        case "data":
+          return { kind: "data", data: content.value };
+        default:
+          return { kind: "text", text: "" };
+      }
+    });
+
+    const legacyMessage: Record<string, unknown> = {
+      kind: "message",
+      messageId: message.messageId,
+      role: message.role === Role.ROLE_AGENT ? "agent" : "user",
+      parts: legacyParts,
+      ...(message.contextId ? { contextId: message.contextId } : {}),
+      ...(message.taskId ? { taskId: message.taskId } : {}),
+      // Preserve the OpenClaw agentId routing extension for legacy peers,
+      // which expect it as a top-level message field.
+      ...(typeof extraMeta.agentId === "string" ? { agentId: extraMeta.agentId } : {}),
+    };
+
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    const serviceParams = requestOptions.serviceParameters ?? {};
+    if (serviceParams.authorization) headers.authorization = serviceParams.authorization;
+    if (serviceParams["x-api-key"]) headers["x-api-key"] = serviceParams["x-api-key"];
+
+    try {
+      const response = await doFetch(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: `legacy-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          method: LEGACY_METHOD_MESSAGE_SEND,
+          params: { message: legacyMessage },
+        }),
+      });
+
+      const payload = (await response.json().catch(() => undefined)) as
+        | { result?: unknown; error?: { code?: number; message?: string } }
+        | undefined;
+
+      if (!response.ok || !payload || payload.error) {
+        return {
+          ok: false,
+          statusCode: response.status || 500,
+          response: payload?.error ?? payload ?? { error: `legacy send failed (${response.status})` },
+        };
+      }
+
+      return { ok: true, statusCode: response.status, response: payload.result };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        statusCode: 500,
+        response: { error: error instanceof Error ? error.message : String(error) },
+      };
+    }
   }
 
   /**

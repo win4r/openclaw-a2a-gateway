@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 
+import { Role, TaskState } from "@a2a-js/sdk";
 import type { Task } from "@a2a-js/sdk";
 
 import { recoverStaleTasks } from "../src/task-recovery.js";
@@ -13,17 +14,20 @@ import { silentLogger } from "./helpers.js";
 
 function makeTask(
   taskId: string,
-  state: string,
+  state: TaskState,
   timestamp?: string,
 ): Task {
   return {
-    kind: "task",
     id: taskId,
     contextId: `ctx-${taskId}`,
     status: {
-      state: state as any,
+      state,
+      message: undefined,
       ...(timestamp !== undefined ? { timestamp } : {}),
     },
+    artifacts: [],
+    history: [],
+    metadata: undefined,
   };
 }
 
@@ -36,7 +40,7 @@ describe("recoverStaleTasks", () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "a2a-recovery-"));
     try {
       const store = new FileTaskStore(dir);
-      await store.save(makeTask("task-sub", "submitted", hoursAgo(2)));
+      await store.save(makeTask("task-sub", TaskState.TASK_STATE_SUBMITTED, hoursAgo(2)));
 
       const result = await recoverStaleTasks(store, silentLogger());
       assert.equal(result.recovered, 1);
@@ -45,7 +49,7 @@ describe("recoverStaleTasks", () => {
 
       const task = await store.load("task-sub");
       assert.ok(task);
-      assert.equal(task.status.state, "failed");
+      assert.equal(task.status.state, TaskState.TASK_STATE_FAILED);
       assert.ok(task.status.timestamp);
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -56,14 +60,14 @@ describe("recoverStaleTasks", () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "a2a-recovery-"));
     try {
       const store = new FileTaskStore(dir);
-      await store.save(makeTask("task-work", "working", hoursAgo(1)));
+      await store.save(makeTask("task-work", TaskState.TASK_STATE_WORKING, hoursAgo(1)));
 
       const result = await recoverStaleTasks(store, silentLogger());
       assert.equal(result.recovered, 1);
 
       const task = await store.load("task-work");
       assert.ok(task);
-      assert.equal(task.status.state, "failed");
+      assert.equal(task.status.state, TaskState.TASK_STATE_FAILED);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -73,17 +77,17 @@ describe("recoverStaleTasks", () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "a2a-recovery-"));
     try {
       const store = new FileTaskStore(dir);
-      await store.save(makeTask("t-input", "input-required", hoursAgo(1)));
-      await store.save(makeTask("t-auth", "auth-required", hoursAgo(1)));
-      await store.save(makeTask("t-unknown", "unknown", hoursAgo(1)));
+      await store.save(makeTask("t-input", TaskState.TASK_STATE_INPUT_REQUIRED, hoursAgo(1)));
+      await store.save(makeTask("t-auth", TaskState.TASK_STATE_AUTH_REQUIRED, hoursAgo(1)));
+      await store.save(makeTask("t-unknown", TaskState.TASK_STATE_UNSPECIFIED, hoursAgo(1)));
 
       const result = await recoverStaleTasks(store, silentLogger());
       assert.equal(result.recovered, 3);
       assert.equal(result.skipped, 0);
 
-      assert.equal((await store.load("t-input"))!.status.state, "failed");
-      assert.equal((await store.load("t-auth"))!.status.state, "failed");
-      assert.equal((await store.load("t-unknown"))!.status.state, "failed");
+      assert.equal((await store.load("t-input"))!.status.state, TaskState.TASK_STATE_FAILED);
+      assert.equal((await store.load("t-auth"))!.status.state, TaskState.TASK_STATE_FAILED);
+      assert.equal((await store.load("t-unknown"))!.status.state, TaskState.TASK_STATE_FAILED);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -93,19 +97,19 @@ describe("recoverStaleTasks", () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "a2a-recovery-"));
     try {
       const store = new FileTaskStore(dir);
-      await store.save(makeTask("t-completed", "completed", hoursAgo(1)));
-      await store.save(makeTask("t-failed", "failed", hoursAgo(1)));
-      await store.save(makeTask("t-canceled", "canceled", hoursAgo(1)));
-      await store.save(makeTask("t-rejected", "rejected", hoursAgo(1)));
+      await store.save(makeTask("t-completed", TaskState.TASK_STATE_COMPLETED, hoursAgo(1)));
+      await store.save(makeTask("t-failed", TaskState.TASK_STATE_FAILED, hoursAgo(1)));
+      await store.save(makeTask("t-canceled", TaskState.TASK_STATE_CANCELED, hoursAgo(1)));
+      await store.save(makeTask("t-rejected", TaskState.TASK_STATE_REJECTED, hoursAgo(1)));
 
       const result = await recoverStaleTasks(store, silentLogger());
       assert.equal(result.recovered, 0);
       assert.equal(result.skipped, 4);
 
-      assert.equal((await store.load("t-completed"))!.status.state, "completed");
-      assert.equal((await store.load("t-failed"))!.status.state, "failed");
-      assert.equal((await store.load("t-canceled"))!.status.state, "canceled");
-      assert.equal((await store.load("t-rejected"))!.status.state, "rejected");
+      assert.equal((await store.load("t-completed"))!.status.state, TaskState.TASK_STATE_COMPLETED);
+      assert.equal((await store.load("t-failed"))!.status.state, TaskState.TASK_STATE_FAILED);
+      assert.equal((await store.load("t-canceled"))!.status.state, TaskState.TASK_STATE_CANCELED);
+      assert.equal((await store.load("t-rejected"))!.status.state, TaskState.TASK_STATE_REJECTED);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -115,19 +119,19 @@ describe("recoverStaleTasks", () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "a2a-recovery-"));
     try {
       const store = new FileTaskStore(dir);
-      await store.save(makeTask("t1", "submitted", hoursAgo(5)));
-      await store.save(makeTask("t2", "completed", hoursAgo(1)));
-      await store.save(makeTask("t3", "working", hoursAgo(3)));
-      await store.save(makeTask("t4", "failed", hoursAgo(2)));
+      await store.save(makeTask("t1", TaskState.TASK_STATE_SUBMITTED, hoursAgo(5)));
+      await store.save(makeTask("t2", TaskState.TASK_STATE_COMPLETED, hoursAgo(1)));
+      await store.save(makeTask("t3", TaskState.TASK_STATE_WORKING, hoursAgo(3)));
+      await store.save(makeTask("t4", TaskState.TASK_STATE_FAILED, hoursAgo(2)));
 
       const result = await recoverStaleTasks(store, silentLogger());
       assert.equal(result.recovered, 2);
       assert.equal(result.skipped, 2);
 
-      assert.equal((await store.load("t1"))!.status.state, "failed");
-      assert.equal((await store.load("t2"))!.status.state, "completed");
-      assert.equal((await store.load("t3"))!.status.state, "failed");
-      assert.equal((await store.load("t4"))!.status.state, "failed");
+      assert.equal((await store.load("t1"))!.status.state, TaskState.TASK_STATE_FAILED);
+      assert.equal((await store.load("t2"))!.status.state, TaskState.TASK_STATE_COMPLETED);
+      assert.equal((await store.load("t3"))!.status.state, TaskState.TASK_STATE_FAILED);
+      assert.equal((await store.load("t4"))!.status.state, TaskState.TASK_STATE_FAILED);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -137,7 +141,7 @@ describe("recoverStaleTasks", () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "a2a-recovery-"));
     try {
       const store = new FileTaskStore(dir);
-      await store.save(makeTask("task-msg", "working", hoursAgo(1)));
+      await store.save(makeTask("task-msg", TaskState.TASK_STATE_WORKING, hoursAgo(1)));
 
       await recoverStaleTasks(store, silentLogger());
 
@@ -145,12 +149,14 @@ describe("recoverStaleTasks", () => {
       assert.ok(task);
       const message = task.status.message;
       assert.ok(message);
-      assert.equal(message.kind, "message");
       assert.ok(message.messageId, "messageId must be present");
-      assert.equal(message.role, "agent");
+      assert.equal(message.role, Role.ROLE_AGENT);
       assert.ok(message.parts.length > 0);
-      const text = (message.parts[0] as any).text;
-      assert.ok(text.includes("was: working"));
+      const first = message.parts[0] as any;
+      assert.equal(first.content?.$case, "text");
+      const text = String(first.content?.value ?? "");
+      // taskStateName() renders lowercase wire names ("working")
+      assert.equal(text.includes("was: working"), true);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

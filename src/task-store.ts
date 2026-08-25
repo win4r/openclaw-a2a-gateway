@@ -5,8 +5,35 @@ import { TaskState } from "@a2a-js/sdk";
 import type { ListTasksRequest, ListTasksResponse, Task } from "@a2a-js/sdk";
 import type { ServerCallContext, TaskStore } from "@a2a-js/sdk/server";
 
+function taskReplacer(_key: string, value: unknown): unknown {
+  if (value instanceof Uint8Array) {
+    return { __a2aRawBytes: Buffer.from(value).toString("base64") };
+  }
+  const candidate = value as { type?: unknown; data?: unknown } | null;
+  if (candidate?.type === "Buffer" && Array.isArray(candidate.data)) {
+    return { __a2aRawBytes: Buffer.from(candidate.data).toString("base64") };
+  }
+  return value;
+}
+
+function taskReviver(_key: string, value: unknown): unknown {
+  const candidate = value as { type?: unknown; data?: unknown } | null;
+  const encoded = (value as { __a2aRawBytes?: unknown } | null)?.__a2aRawBytes;
+  if (typeof encoded === "string") {
+    return Buffer.from(encoded, "base64");
+  }
+  if (
+    candidate?.type === "Buffer" &&
+    Array.isArray(candidate.data) &&
+    candidate.data.every((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 255)
+  ) {
+    return Buffer.from(candidate.data);
+  }
+  return value;
+}
+
 function cloneTask(task: Task): Task {
-  return JSON.parse(JSON.stringify(task)) as Task;
+  return JSON.parse(JSON.stringify(task, taskReplacer), taskReviver) as Task;
 }
 
 /** Apply ListTasks projections (history truncation, artifact stripping). */
@@ -44,7 +71,7 @@ export class FileTaskStore implements TaskStore {
   async load(taskId: string, _context?: ServerCallContext): Promise<Task | undefined> {
     try {
       const payload = await readFile(this.taskPath(taskId), "utf8");
-      return JSON.parse(payload) as Task;
+      return JSON.parse(payload, taskReviver) as Task;
     } catch (error: unknown) {
       const code = (error as { code?: string } | undefined)?.code;
       if (code === "ENOENT") {
@@ -60,7 +87,7 @@ export class FileTaskStore implements TaskStore {
     const nextTask = cloneTask(task);
     const targetPath = this.taskPath(task.id);
     const tmpPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
-    const payload = `${JSON.stringify(nextTask, null, 2)}\n`;
+    const payload = `${JSON.stringify(nextTask, taskReplacer, 2)}\n`;
 
     await writeFile(tmpPath, payload, "utf8");
 

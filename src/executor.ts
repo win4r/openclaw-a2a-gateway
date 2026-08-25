@@ -1659,7 +1659,10 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       const mimeType = typeof obj.mediaType === "string" ? obj.mediaType : undefined;
       const filename = typeof obj.filename === "string" ? obj.filename : undefined;
       if (v1Content.$case === "url" && typeof v1Content.value === "string") {
-        results.push({ kind: "file", file: { uri: v1Content.value }, mimeType, name: filename });
+        results.push({
+          kind: "file",
+          file: { uri: v1Content.value, mimeType, name: filename },
+        });
         return results;
       }
       if (v1Content.$case === "raw") {
@@ -1667,19 +1670,14 @@ export class OpenClawAgentExecutor implements AgentExecutor {
           Buffer.isBuffer(v1Content.value)
             ? (v1Content.value as Buffer).toString("base64")
             : String(v1Content.value ?? "");
-        results.push({ kind: "file", file: { bytes }, mimeType, name: filename });
+        results.push({ kind: "file", file: { bytes, mimeType, name: filename } });
         return results;
       }
     }
 
     const parts = Array.isArray(obj.parts) ? obj.parts : [];
     for (const p of parts) {
-      if (p && typeof p === "object") {
-        const part = p as Record<string, unknown>;
-        if (part.kind === "file" && part.file) {
-          results.push(part);
-        }
-      }
+      results.push(...this.extractFileParts(p));
     }
 
     return results;
