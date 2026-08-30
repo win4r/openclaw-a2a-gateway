@@ -186,7 +186,7 @@ export function parseConfig(raw: unknown, resolvePath?: (nextPath: string) => st
   const inboundAuth = asString(security.inboundAuth, "none") as InboundAuth;
 
   const defaultMimeTypes = [
-    "image/*", "application/pdf", "text/plain", "text/csv",
+    "image/*", "application/pdf", "text/plain", "text/csv", "text/markdown",
     "application/json", "audio/*", "video/*",
   ];
   const rawAllowedMime = Array.isArray(security.allowedMimeTypes) ? security.allowedMimeTypes : [];
@@ -270,7 +270,7 @@ export function parseConfig(raw: unknown, resolvePath?: (nextPath: string) => st
       ),
     },
     timeouts: {
-      agentResponseTimeoutMs: asNumber(timeouts.agentResponseTimeoutMs, 300_000),
+      agentResponseTimeoutMs: asNumber(timeouts.agentResponseTimeoutMs, 1_200_000),
     },
     resilience: {
       healthCheck: {
