@@ -9,3 +9,7 @@ tsconfig.json
 CHANGELOG.md
 TEST-REPORT.md
 A2A_SDK_REVIEW_CN.md
+
+# Benchmark source and generated report
+/benchmarks/
+/BENCHMARK.md

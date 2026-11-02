@@ -662,7 +662,7 @@ Alle bioinspirierten Features sind **optional und abwärtskompatibel** — ohne 
 | Adaptiver Transport | Peers bieten mehrere Transportwege | Automatisch (lernt aus Nutzung) |
 | MM weiche Nebenläufigkeit | Hochdurchsatz-Operationen unter einer Sekunde | `limits.saturation` |
 
-> Benchmark: `node --import tsx --test tests/benchmark.test.ts`
+> Benchmark: `npm run benchmark`
 
 ## Versionshistorie
 

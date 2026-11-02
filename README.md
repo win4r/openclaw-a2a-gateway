@@ -708,7 +708,7 @@ All bio-inspired features are **optional and backward-compatible** — without e
 | Adaptive transport | Peers expose multiple transports | Automatic (learns from usage) |
 | MM soft concurrency | High-throughput sub-second operations | `limits.saturation` |
 
-> Benchmark suite: `node --import tsx --test tests/benchmark.test.ts` — runs 5-dimension before/after comparison across all bio-inspired features.
+> Benchmark suite: `npm run benchmark` — runs 5-dimension before/after comparison across all bio-inspired features.
 
 ## Version History
 

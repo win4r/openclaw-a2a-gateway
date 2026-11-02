@@ -662,7 +662,7 @@ Todas as funcionalidades bioinspiradas são **opcionais e retrocompatíveis** �
 | Transporte adaptativo | Pares expõem múltiplos transportes | Automático (aprende com o uso) |
 | Concorrência suave MM | Operações de alto throughput abaixo de um segundo | `limits.saturation` |
 
-> Benchmark: `node --import tsx --test tests/benchmark.test.ts`
+> Benchmark: `npm run benchmark`
 
 ## Histórico de Versões
 

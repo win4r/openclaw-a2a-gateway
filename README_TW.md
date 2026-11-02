@@ -662,7 +662,7 @@ skill/
 | 自適應傳輸 | peer 暴露多種傳輸協定 | 自動（從使用中學習） |
 | MM 軟併發 | 高吞吐亞秒級操作 | `limits.saturation` |
 
-> Benchmark: `node --import tsx --test tests/benchmark.test.ts`
+> Benchmark: `npm run benchmark`
 
 ## 版本歷史
 

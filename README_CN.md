@@ -621,7 +621,7 @@ Agent 会自动按照 skill 的流程执行。
 | 自适应传输 | peer 暴露多种传输协议 | 自动（从使用中学习） |
 | MM 软并发 | 高吞吐亚秒级操作 | `limits.saturation` |
 
-> 基准测试：`node --import tsx --test tests/benchmark.test.ts` — 5 维度 before/after 对比。
+> 基准测试：`npm run benchmark` — 5 维度 before/after 对比。
 
 ## 版本历史
 
