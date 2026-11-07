@@ -1,3 +1,5 @@
+[Profil Bilibili](https://space.bilibili.com/3493277319825652)
+
 # 🦞 Plugin OpenClaw A2A Gateway
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)

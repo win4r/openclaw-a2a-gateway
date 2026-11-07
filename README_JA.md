@@ -1,3 +1,5 @@
+[Bilibiliプロフィール](https://space.bilibili.com/3493277319825652)
+
 # 🦞 OpenClaw A2A Gateway プラグイン
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
