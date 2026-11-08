@@ -6,3 +6,6 @@ coverage/
 data/
 plan-*.md
 research-*.md
+
+# Generated benchmark report
+/BENCHMARK.md
