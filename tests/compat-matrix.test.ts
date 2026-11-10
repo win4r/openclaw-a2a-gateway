@@ -10,6 +10,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { TaskState } from "@a2a-js/sdk";
 
 import { buildAgentCard } from "../src/agent-card.js";
 import { OpenClawAgentExecutor } from "../src/executor.js";
@@ -302,9 +303,9 @@ describe("compat: Agent Card parsing variations", () => {
   it("buildAgentCard produces valid card regardless of config completeness", () => {
     // Empty config — all defaults
     const defaultCard = buildAgentCard({} as unknown as GatewayConfig) as Record<string, unknown>;
-    assert.equal(defaultCard.protocolVersion, "0.3.0");
+    assert.equal((defaultCard.supportedInterfaces as Array<Record<string, unknown>>)[0]?.protocolVersion, "1.0");
     assert.ok(defaultCard.name, "should have a name");
-    assert.ok(defaultCard.url, "should have a url");
+    assert.ok(Array.isArray(defaultCard.supportedInterfaces), "should have supported interfaces");
     assert.ok(Array.isArray(defaultCard.skills), "should have skills array");
 
     // Partial config — only name provided
@@ -312,7 +313,7 @@ describe("compat: Agent Card parsing variations", () => {
       makeConfig({ agentCard: { name: "PartialBot" } }) as unknown as GatewayConfig,
     ) as Record<string, unknown>;
     assert.equal(partialCard.name, "PartialBot");
-    assert.equal(partialCard.protocolVersion, "0.3.0");
+    assert.equal((partialCard.supportedInterfaces as Array<Record<string, unknown>>)[0]?.protocolVersion, "1.0");
 
     // Full config
     const fullCard = buildAgentCard(
@@ -748,14 +749,14 @@ describe("compat: response format variations", () => {
         } as any,
       );
 
-      const finalTask = published[published.length - 1] as Record<string, unknown>;
+      const finalTask = (published[published.length - 1] as any).data as Record<string, unknown>;
       const status = finalTask.status as Record<string, unknown>;
-      assert.equal(status.state, "completed");
+      assert.equal(status.state, TaskState.TASK_STATE_COMPLETED);
 
       const msg = status.message as Record<string, unknown>;
       const parts = msg.parts as Array<Record<string, unknown>>;
       assert.ok(parts.length >= 1, "should have at least one part");
-      assert.equal(parts[0].kind, "text");
+      assert.equal((parts[0] as any).content?.$case, "text");
     } finally {
       (globalThis as any).WebSocket = originalWebSocket;
     }
@@ -797,15 +798,15 @@ describe("compat: response format variations", () => {
         } as any,
       );
 
-      const finalTask = published[published.length - 1] as Record<string, unknown>;
+      const finalTask = (published[published.length - 1] as any).data as Record<string, unknown>;
       const status = finalTask.status as Record<string, unknown>;
-      assert.equal(status.state, "completed");
+      assert.equal(status.state, TaskState.TASK_STATE_COMPLETED);
 
       const msg = status.message as Record<string, unknown>;
       const parts = msg.parts as Array<Record<string, unknown>>;
 
-      const textParts = parts.filter((p) => p.kind === "text");
-      const fileParts = parts.filter((p) => p.kind === "file");
+      const textParts = parts.filter((p: any) => p.content?.$case === "text");
+      const fileParts = parts.filter((p: any) => p.content?.$case === "url" || p.content?.$case === "raw");
       assert.ok(textParts.length >= 1, "should have text part");
       assert.equal(fileParts.length, 2, "should have two file parts (deduped from mediaUrl + mediaUrls)");
     } finally {
@@ -983,7 +984,7 @@ describe("compat: transport header variations", () => {
         body: JSON.stringify({
           jsonrpc: "2.0",
           id: "test-1",
-          method: "message/send",
+          method: "SendMessage",
           params: {
             message: { messageId: "m1", role: "user", parts: [{ kind: "text", text: "no auth" }] },
           },
@@ -1004,9 +1005,9 @@ describe("compat: transport header variations", () => {
         body: JSON.stringify({
           jsonrpc: "2.0",
           id: "test-2",
-          method: "message/send",
+          method: "SendMessage",
           params: {
-            message: { messageId: "m2", role: "user", parts: [{ kind: "text", text: "with auth" }] },
+            message: { messageId: "m2", role: "ROLE_USER", parts: [{ text: "with auth" }] },
           },
         }),
         signal: AbortSignal.timeout(30_000),
@@ -1014,7 +1015,7 @@ describe("compat: transport header variations", () => {
 
       assert.equal(authResp.status, 200, "should accept request with correct auth");
       const authBody = await authResp.json() as Record<string, unknown>;
-      assert.ok(!authBody.error, "should not have error with correct auth");
+      assert.ok(!authBody.error, `should not have error with correct auth: ${JSON.stringify(authBody.error)}`);
 
       await service!.stop({} as any);
     } finally {

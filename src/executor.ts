@@ -4,8 +4,16 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-import type { Message, Part, Task } from "@a2a-js/sdk";
-import type { AgentExecutor, ExecutionEventBus, RequestContext } from "@a2a-js/sdk/server";
+import { Role, TaskState } from "@a2a-js/sdk";
+import type { Artifact, Message, Part, Task } from "@a2a-js/sdk";
+import type {
+  AgentExecutionEvent,
+  AgentExecutor,
+  ExecutionEventBus,
+  RequestContext,
+} from "@a2a-js/sdk/server";
+
+import { textPart, urlFilePart, v1Message } from "./types-v1.js";
 
 import type { GatewayConfig, OpenClawPluginApi } from "./types.js";
 import { enqueueDispatch } from "./dispatch-queue.js";
@@ -152,6 +160,29 @@ function extractTextFragments(value: unknown): string[] {
   const obj = asObject(value);
   if (!obj) {
     return [];
+  }
+
+  // v1 protobuf-style Part: content discriminated by $case
+  const v1Content = asObject(obj.content);
+  if (v1Content && typeof v1Content.$case === "string") {
+    if (v1Content.$case === "text") {
+      const trimmed = typeof v1Content.value === "string" ? v1Content.value.trim() : "";
+      return trimmed ? [trimmed] : [];
+    }
+    if (v1Content.$case === "url") {
+      const name = typeof obj.filename === "string" && obj.filename ? ` (${obj.filename})` : "";
+      return [`[file] ${String(v1Content.value)}${name}`];
+    }
+    if (v1Content.$case === "raw") {
+      return [`[file] ${typeof obj.filename === "string" && obj.filename ? obj.filename : "(binary attachment)"}`];
+    }
+    if (v1Content.$case === "data") {
+      try {
+        return [JSON.stringify(v1Content.value)];
+      } catch {
+        return [];
+      }
+    }
   }
 
   if (obj.kind === "text" && typeof obj.text === "string") {
@@ -343,39 +374,70 @@ export function extractUrlsFromText(text: string, existingUrls: string[] = []): 
   return result;
 }
 
+/** Build a wrapped v1 task lifecycle event for the execution event bus. */
+function taskEvent(
+  taskId: string,
+  contextId: string,
+  history: Message[],
+  status: {
+    state: TaskState;
+    message?: Message | undefined;
+    timestamp?: string | undefined;
+  },
+  artifacts?: Artifact[],
+): AgentExecutionEvent {
+  const task: Task = {
+    id: taskId,
+    contextId,
+    status: {
+      state: status.state,
+      message: status.message ?? undefined,
+      timestamp: status.timestamp ?? new Date().toISOString(),
+    },
+    history,
+    artifacts: artifacts ?? [],
+    metadata: undefined,
+  };
+  return { kind: "task", data: task };
+}
+
+function agentStatusMessage(contextId: string, taskId: string, text: string): Message {
+  return v1Message({
+    messageId: uuidv4(),
+    role: Role.ROLE_AGENT,
+    parts: [textPart(text)],
+    contextId,
+    taskId,
+  });
+}
+
 /**
- * Build A2A Part array from an AgentResponse. Produces TextPart for text
- * content, FilePart entries for each media URL, and additional FileParts
- * for file URLs discovered in the text content.
+ * Build A2A v1 Part array from an AgentResponse. Produces text parts for
+ * text content, URL file parts for each media URL, and additional URL
+ * file parts for file URLs discovered in the text content.
  */
 function buildResponseParts(response: AgentResponse): Part[] {
   const parts: Part[] = [];
 
   if (response.text) {
-    parts.push({ kind: "text", text: response.text });
+    parts.push(textPart(response.text));
   }
 
   for (const url of response.mediaUrls) {
-    parts.push({
-      kind: "file",
-      file: { uri: url },
-    });
+    parts.push(urlFilePart(url));
   }
 
   // Extract file URLs from text that are not already in mediaUrls
   if (response.text) {
     const textUrls = extractUrlsFromText(response.text, response.mediaUrls);
     for (const url of textUrls) {
-      parts.push({
-        kind: "file",
-        file: { uri: url },
-      });
+      parts.push(urlFilePart(url));
     }
   }
 
   // Ensure at least one part exists (A2A requires non-empty parts array)
   if (parts.length === 0) {
-    parts.push({ kind: "text", text: "" });
+    parts.push(textPart(""));
   }
 
   return parts;
@@ -1216,6 +1278,7 @@ export class GatewayRpcConnectionPool {
         this.stopHeartbeat(entry);
       }
     }, this.heartbeatIntervalMs);
+    entry.heartbeatTimer.unref?.();
   }
 
   private stopHeartbeat(entry: PooledConnection): void {
@@ -1232,6 +1295,7 @@ export class GatewayRpcConnectionPool {
         this.evictConnection(entry);
       }
     }, this.idleTimeoutMs);
+    entry.evictionTimer.unref?.();
   }
 
   private stopEviction(entry: PooledConnection): void {
@@ -1299,41 +1363,29 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       : rawHistory;
 
     // Publish initial "working" state so the task is trackable during async dispatch
-    const workingTask: Task = {
-      kind: "task",
-      id: taskId,
-      contextId,
-      status: {
-        state: "working",
+    eventBus.publish(
+      taskEvent(taskId, contextId, existingHistory, {
+        state: TaskState.TASK_STATE_WORKING,
         timestamp: new Date().toISOString(),
-      },
-      history: existingHistory,
-    };
-    eventBus.publish(workingTask);
+      }),
+    );
 
     // Validate inbound FileParts before dispatching to the agent
     const fileValidationError = this.validateInboundFileParts(requestContext.userMessage);
     if (fileValidationError) {
       this.api.logger.warn(`a2a-gateway: inbound file validation failed: ${fileValidationError}`);
-      const rejectedMessage: Message = {
-        kind: "message",
-        messageId: uuidv4(),
-        role: "agent",
-        parts: [{ kind: "text", text: `File validation failed: ${fileValidationError}` }],
+      const rejectedMessage = agentStatusMessage(
         contextId,
-      };
-      const rejectedTask: Task = {
-        kind: "task",
-        id: taskId,
-        contextId,
-        status: {
-          state: "failed",
+        taskId,
+        `File validation failed: ${fileValidationError}`,
+      );
+      eventBus.publish(
+        taskEvent(taskId, contextId, existingHistory, {
+          state: TaskState.TASK_STATE_FAILED,
           message: rejectedMessage,
           timestamp: new Date().toISOString(),
-        },
-        history: existingHistory,
-      };
-      eventBus.publish(rejectedTask);
+        }),
+      );
       eventBus.finished();
       return;
     }
@@ -1343,17 +1395,12 @@ export class OpenClawAgentExecutor implements AgentExecutor {
     // Emit periodic heartbeat events while the agent is working.
     // This keeps SSE connections alive and signals that the task is still in progress.
     const heartbeat = setInterval(() => {
-      const heartbeatTask: Task = {
-        kind: "task",
-        id: taskId,
-        contextId,
-        status: {
-          state: "working",
+      eventBus.publish(
+        taskEvent(taskId, contextId, existingHistory, {
+          state: TaskState.TASK_STATE_WORKING,
           timestamp: new Date().toISOString(),
-        },
-        history: existingHistory,
-      };
-      eventBus.publish(heartbeatTask);
+        }),
+      );
     }, STREAMING_HEARTBEAT_INTERVAL_MS);
 
     try {
@@ -1371,27 +1418,19 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       await this.tryHooksWakeFallback(agentId, taskId, contextId, requestContext.userMessage);
 
       // Return failed task status so the caller knows dispatch did not succeed.
-      const failedMessage: Message = {
-        kind: "message",
-        messageId: uuidv4(),
-        role: "agent",
-        parts: [{ kind: "text", text: `Agent dispatch failed: ${errorMessage}` }],
+      const failedMessage = agentStatusMessage(
         contextId,
-      };
+        taskId,
+        `Agent dispatch failed: ${errorMessage}`,
+      );
 
-      const failedTask: Task = {
-        kind: "task",
-        id: taskId,
-        contextId,
-        status: {
-          state: "failed",
+      eventBus.publish(
+        taskEvent(taskId, contextId, existingHistory, {
+          state: TaskState.TASK_STATE_FAILED,
           message: failedMessage,
           timestamp: new Date().toISOString(),
-        },
-        history: existingHistory,
-      };
-
-      eventBus.publish(failedTask);
+        }),
+      );
       eventBus.finished();
       return;
     }
@@ -1401,33 +1440,36 @@ export class OpenClawAgentExecutor implements AgentExecutor {
     // Publish completed Task with artifact (text + optional file parts)
     const responseParts = buildResponseParts(agentResponse);
 
-    const responseMessage: Message = {
-      kind: "message",
+    const responseMessage = v1Message({
       messageId: uuidv4(),
-      role: "agent",
+      role: Role.ROLE_AGENT,
       parts: responseParts,
       contextId,
+      taskId,
+    });
+
+    const responseArtifact: Artifact = {
+      artifactId: uuidv4(),
+      name: "",
+      description: "",
+      parts: responseParts,
+      metadata: undefined,
+      extensions: [],
     };
 
-    const completedTask: Task = {
-      kind: "task",
-      id: taskId,
-      contextId,
-      status: {
-        state: "completed",
-        message: responseMessage,
-        timestamp: new Date().toISOString(),
-      },
-      history: existingHistory,
-      artifacts: [
+    eventBus.publish(
+      taskEvent(
+        taskId,
+        contextId,
+        existingHistory,
         {
-          artifactId: uuidv4(),
-          parts: responseParts,
+          state: TaskState.TASK_STATE_COMPLETED,
+          message: responseMessage,
+          timestamp: new Date().toISOString(),
         },
-      ],
-    };
-
-    eventBus.publish(completedTask);
+        [responseArtifact],
+      ),
+    );
     eventBus.finished();
   }
 
@@ -1445,16 +1487,12 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       return;
     }
 
-    const canceledTask: Task = {
-      kind: "task",
-      id: taskId,
-      contextId,
-      status: {
-        state: "canceled",
+    eventBus.publish(
+      taskEvent(taskId, contextId, [], {
+        state: TaskState.TASK_STATE_CANCELED,
         timestamp: new Date().toISOString(),
-      },
-    };
-    eventBus.publish(canceledTask);
+      }),
+    );
     this.taskContextByTaskId.delete(taskId);
     eventBus.finished();
   }
@@ -1614,14 +1652,32 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       return results;
     }
 
+    // v1 protobuf-style Part: normalize into the legacy {kind:"file",file}
+    // shape so downstream validation logic stays uniform.
+    const v1Content = asObject(obj.content);
+    if (v1Content && typeof v1Content.$case === "string") {
+      const mimeType = typeof obj.mediaType === "string" ? obj.mediaType : undefined;
+      const filename = typeof obj.filename === "string" ? obj.filename : undefined;
+      if (v1Content.$case === "url" && typeof v1Content.value === "string") {
+        results.push({
+          kind: "file",
+          file: { uri: v1Content.value, mimeType, name: filename },
+        });
+        return results;
+      }
+      if (v1Content.$case === "raw") {
+        const bytes =
+          Buffer.isBuffer(v1Content.value)
+            ? (v1Content.value as Buffer).toString("base64")
+            : String(v1Content.value ?? "");
+        results.push({ kind: "file", file: { bytes, mimeType, name: filename } });
+        return results;
+      }
+    }
+
     const parts = Array.isArray(obj.parts) ? obj.parts : [];
     for (const p of parts) {
-      if (p && typeof p === "object") {
-        const part = p as Record<string, unknown>;
-        if (part.kind === "file" && part.file) {
-          results.push(part);
-        }
-      }
+      results.push(...this.extractFileParts(p));
     }
 
     return results;
