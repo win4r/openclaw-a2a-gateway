@@ -16,6 +16,14 @@ import {
   decodedBase64Size,
   sanitizeUriForLog,
 } from "./file-security.js";
+import {
+  buildOutboundTraceparent,
+  getActiveUpstreamTrace,
+  isValidTraceparent,
+  parseTraceparent,
+  TRACEPARENT_MAX_LENGTH,
+  type W3CTraceContext,
+} from "./internal/traceparent.js";
 
 const DEFAULT_AGENT_RESPONSE_TIMEOUT_MS = 300_000;
 const GATEWAY_CONNECT_TIMEOUT_MS = 10_000;
@@ -49,6 +57,90 @@ function pickAgentId(requestContext: RequestContext, fallbackAgentId: string): s
   const msg = requestContext.userMessage as unknown as Record<string, unknown> | undefined;
   const explicit = msg && typeof msg.agentId === "string" ? msg.agentId : "";
   return explicit || fallbackAgentId;
+}
+
+/**
+ * Pull an upstream `traceparent` off the inbound A2A request.
+ *
+ * Resolution order (highest priority first):
+ *  1. The AsyncLocalStorage scope set by the inbound express / gRPC
+ *     middleware.  This is the canonical W3C `traceparent` HTTP header
+ *     (or gRPC metadata entry) the peer sent on the original request.
+ *  2. The A2A message body itself:
+ *      - top-level `metadata.traceparent`
+ *      - top-level `traceparent` (rare, but harmless)
+ *      - per-part `parts[].metadata.traceparent`
+ *
+ * The "ALS first" priority is deliberate: per the W3C spec, the
+ * `traceparent` HTTP header is the canonical carrier.  The body-level
+ * path is kept for callers that want to smuggle trace context into an
+ * A2A `metadata` field instead of using the header (e.g. certain HTTP
+ * proxies that strip custom headers).
+ *
+ * Invalid / missing values are dropped — `request()` will mint a fresh
+ * child span in that case so the dispatch is never blocked by a bad
+ * value (the Gateway silently ignores malformed traceparents anyway).
+ */
+function pickUpstreamTraceparent(requestContext: RequestContext): W3CTraceContext | undefined {
+  // 1. ALS store — populated by the inbound middleware in `index.ts`
+  //    from the inbound `traceparent` HTTP / gRPC carrier.
+  const fromStore = getActiveUpstreamTrace();
+  if (fromStore) {
+    return fromStore;
+  }
+
+  // 2. A2A message body — top-level or per-part metadata.
+  const visited: unknown[] = [];
+  const tryCarrier = (carrier: unknown): W3CTraceContext | undefined => {
+    if (!carrier || typeof carrier !== "object" || visited.includes(carrier)) {
+      return undefined;
+    }
+    visited.push(carrier);
+    const obj = carrier as Record<string, unknown>;
+    const direct = obj.traceparent;
+    if (typeof direct === "string") {
+      const parsed = parseSafe(direct);
+      if (parsed) return parsed;
+    }
+    const md = obj.metadata;
+    if (md && typeof md === "object") {
+      const fromMeta = (md as Record<string, unknown>).traceparent;
+      if (typeof fromMeta === "string") {
+        const parsed = parseSafe(fromMeta);
+        if (parsed) return parsed;
+      }
+    }
+    return undefined;
+  };
+
+  const userMessage = requestContext.userMessage as unknown;
+  const fromMessage = tryCarrier(userMessage);
+  if (fromMessage) return fromMessage;
+
+  // The SDK puts per-message metadata on `parts[].metadata` too — scan one
+  // level deep so a carrier on a file/data part is still honored.
+  const msg = userMessage as { parts?: unknown } | undefined;
+  const parts = msg?.parts;
+  if (Array.isArray(parts)) {
+    for (const part of parts) {
+      const fromPart = tryCarrier(part);
+      if (fromPart) return fromPart;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * `parseSafe` — internal helper that only delegates to the public
+ * `parseTraceparent` if the value is already length-bounded.  Avoids
+ * pulling the parser into a hot path twice.
+ */
+function parseSafe(value: string): W3CTraceContext | undefined {
+  if (value.length > TRACEPARENT_MAX_LENGTH) {
+    return undefined;
+  }
+  return parseTraceparent(value);
 }
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -429,6 +521,28 @@ interface GatewayRuntimeConfig {
   gatewayToken: string;
   gatewayPassword: string;
   hooksToken: string;
+  /**
+   * Highest protocol version the plugin advertises during `connect`.
+   * The Gateway negotiates within `[minProtocol, maxProtocol]`.  We bump
+   * to `5` (the version that introduces the top-level `traceparent`
+   * field on `req` frames) but keep advertising older versions so the
+   * pool can connect to legacy Gateways.
+   *
+   * Default 5.
+   */
+  maxProtocol?: number;
+  /**
+   * Lowest protocol version that supports the top-level `traceparent`
+   * field on `req` frames.  When the negotiated protocol is below this
+   * number, `request()` will NOT stamp a `traceparent` field — older
+   * Gateways validate `RequestFrameSchema` with `closedObject` (strict
+   * unknown-key rejection) and reject unknown keys with:
+   *
+   *     invalid request frame: at root: unexpected property 'traceparent'
+   *
+   * Default 5.
+   */
+  minTraceparentProtocol?: number;
 }
 
 interface PendingGatewayRequest {
@@ -504,6 +618,8 @@ export class GatewayRpcConnection {
   private readonly wsUrl: string;
   private readonly gatewayToken: string;
   private readonly gatewayPassword: string;
+  private readonly maxProtocol: number;
+  private readonly minTraceparentProtocol: number;
   private readonly pending: Map<string, PendingGatewayRequest>;
   private socket: GatewayWebSocket | null;
   private messageListener: ((event: { data: unknown }) => void) | null;
@@ -514,10 +630,39 @@ export class GatewayRpcConnection {
   private connectChallengeRejecter: ((error: Error) => void) | null;
   private challengeNonce: string;
 
+  /**
+   * Negotiated `protocol` field from the `connect` response payload.
+   * `undefined` until the connect handshake completes; once set, used
+   * by `request()` to decide whether to stamp a top-level
+   * `traceparent` field on subsequent `req` frames.
+   */
+  private negotiatedProtocol: number | undefined;
+
+  /**
+   * Convenience derived flag: `true` when `negotiatedProtocol >=
+   * minTraceparentProtocol`.  Read by `request()` to gate traceparent
+   * propagation.  Defaults to `false` (safe) when the handshake hasn't
+   * completed yet or when the gateway didn't advertise a `protocol`
+   * number (legacy builds).
+   */
+  private get traceparentSupported(): boolean {
+    if (this.negotiatedProtocol === undefined) {
+      return false;
+    }
+    return this.negotiatedProtocol >= this.minTraceparentProtocol;
+  }
+
   constructor(config: GatewayRuntimeConfig) {
     this.wsUrl = config.wsUrl;
     this.gatewayToken = config.gatewayToken;
     this.gatewayPassword = config.gatewayPassword;
+    // Bump `maxProtocol` to 5 (the version that introduces the
+    // top-level `traceparent` field on `req` frames).  The Gateway
+    // negotiates a value within `[minProtocol=3, maxProtocol=5]`,
+    // so legacy Gateways still connect — they just don't accept
+    // `traceparent`, and we honor that via `traceparentSupported`.
+    this.maxProtocol = config.maxProtocol ?? 5;
+    this.minTraceparentProtocol = config.minTraceparentProtocol ?? 5;
     this.pending = new Map();
     this.socket = null;
     this.messageListener = null;
@@ -527,6 +672,15 @@ export class GatewayRpcConnection {
     this.connectChallengeResolver = null;
     this.connectChallengeRejecter = null;
     this.challengeNonce = "";
+  }
+
+  /**
+   * Diagnostic accessor for tests / observability surfaces.  Returns the
+   * negotiated protocol number once the handshake has completed, or
+   * `undefined` if not yet connected.
+   */
+  getNegotiatedProtocol(): number | undefined {
+    return this.negotiatedProtocol;
   }
 
   async connect(): Promise<void> {
@@ -607,6 +761,14 @@ export class GatewayRpcConnection {
     try {
       const connectResult = await this.request("connect", this.buildConnectParams(true), GATEWAY_CONNECT_TIMEOUT_MS, false);
 
+      // Capture the negotiated `protocol` from the connect response so
+      // `request()` knows whether to stamp a top-level `traceparent`
+      // field on subsequent req frames.  Older Gateway builds (≤2026.3.x)
+      // don't include `protocol` in the response payload — in that case
+      // `traceparentSupported` remains `false` and the field is dropped
+      // to avoid `invalid request frame: at root: unexpected property`.
+      this.captureNegotiatedProtocol(connectResult);
+
       // Verify scopes were preserved — OpenClaw ≥2026.3.13 may silently
       // downgrade scopes when the device identity is not recognized (e.g.
       // cross-machine setups where device.json belongs to a different host).
@@ -684,6 +846,10 @@ export class GatewayRpcConnection {
     await challengePromise;
     const reconnectResult = await this.request("connect", this.buildConnectParams(false), GATEWAY_CONNECT_TIMEOUT_MS, false);
 
+    // Capture the negotiated protocol (same logic as the primary
+    // connect path — see `captureNegotiatedProtocol`).
+    this.captureNegotiatedProtocol(reconnectResult);
+
     // If token-only auth also fails to preserve scopes, the gateway requires
     // a paired device identity.  Surface a clear error so the operator knows
     // what to do rather than getting a cryptic "missing scope" later.
@@ -702,6 +868,21 @@ export class GatewayRpcConnection {
     params: unknown,
     timeoutMs: number,
     expectFinal: boolean,
+    /**
+     * Optional pre-built W3C `traceparent` string to attach at the top of
+     * the `req` frame (NOT inside `params`).  The Gateway's
+     * `RequestFrameSchema` accepts a `traceparent: string` of max length
+     * 128 and silently ignores malformed values.
+     *
+     * Per `docs/gateway/opentelemetry.md`:
+     *  - the first `connect` req ignores traceparent; callers SHOULD still
+     *    pass `undefined` for it
+     *  - each subsequent RPC MUST mint a fresh child span — never reuse
+     *    the previous RPC's traceparent, even on the same connection
+     *  - the field goes at top level; never inside `params`
+     *  - length is capped at 128 chars (we already enforce ≤ 55)
+     */
+    traceparent?: string,
   ): Promise<unknown> {
     const socket = this.socket;
     if (!socket || socket.readyState !== 1) {
@@ -709,12 +890,40 @@ export class GatewayRpcConnection {
     }
 
     const id = uuidv4();
-    const frame = {
-      type: "req" as const,
+    const frame: Record<string, unknown> = {
+      type: "req",
       id,
       method,
       params,
     };
+
+    // Traceparent gating — three reasons we may skip stamping:
+//
+//   1. The negotiated `protocol` is below `minTraceparentProtocol`
+//      (default 5).  When that happens, the Gateway's
+//      `RequestFrameSchema` does not include a `traceparent` field, and
+//      the strict `closedObject` validator rejects unknown keys:
+//          invalid request frame: at root: unexpected property 'traceparent'
+//      So we MUST NOT include the field.  Older Gateways still get our
+//      outbound RPCs; they just lose the trace.
+//   2. The value is over-length or malformed — drop silently rather
+//      than let the Gateway reject the whole frame.
+//   3. The caller passed `undefined` — nothing to stamp.
+if (typeof traceparent === "string") {
+      const wellFormed =
+        traceparent.length > 0 &&
+        traceparent.length <= TRACEPARENT_MAX_LENGTH &&
+        isValidTraceparent(traceparent);
+      if (wellFormed) {
+        if (this.traceparentSupported) {
+          frame.traceparent = traceparent;
+        }
+        // Else: drop silently.  The trace is still useful inside the
+        // plugin (so we keep accepting it from callers, which lets
+        // tests/embedders keep passing it) but we don't risk poisoning
+        // the wire frame for older Gateways.
+      }
+    }
 
     return await new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -825,8 +1034,15 @@ export class GatewayRpcConnection {
     const scopes = ["operator.admin", "operator.read", "operator.write", "operator.approvals", "operator.pairing"];
 
     const params: Record<string, unknown> = {
+      // Protocol range advertised to the Gateway.  `minProtocol: 3`
+      // stays low for compatibility with legacy builds that predate
+      // traceparent.  `maxProtocol` defaults to `5`, the version that
+      // adds the top-level `traceparent` field on `req` frames; we
+      // honor the negotiated result via `captureNegotiatedProtocol` so
+      // that requests only stamp `traceparent` when the server accepts
+      // it.  See `traceparentSupported` and `request()`.
       minProtocol: 3,
-      maxProtocol: 4,
+      maxProtocol: this.maxProtocol,
       client: {
         id: "cli",
         version: "a2a-gateway-plugin",
@@ -895,6 +1111,26 @@ export class GatewayRpcConnection {
     const scopes = obj.scopes;
     if (!Array.isArray(scopes)) return false;
     return !scopes.includes("operator.write");
+  }
+
+  /**
+   * Pull the negotiated `protocol` out of a `connect` response payload
+   * and store it on the connection.  Older Gateways (≤2026.3.x) don't
+   * include `protocol` in the response — when the field is absent or
+   * non-numeric, we leave `negotiatedProtocol` as `undefined`, which
+   * keeps `traceparentSupported === false` and prevents the plugin from
+   * stamping a `traceparent` field that would be rejected by the
+   * server's `RequestFrameSchema` with:
+   *
+   *     invalid request frame: at root: unexpected property 'traceparent'
+   */
+  private captureNegotiatedProtocol(connectResult: unknown): void {
+    const obj = asObject(connectResult);
+    if (!obj) return;
+    const raw = obj.protocol;
+    if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) {
+      this.negotiatedProtocol = raw;
+    }
   }
 
   private handleMessage(event: { data: unknown }): void {
@@ -1251,16 +1487,23 @@ export class GatewayRpcConnectionPool {
  */
 export class OpenClawAgentExecutor implements AgentExecutor {
   private readonly api: OpenClawPluginApi;
+  /** Resolved plugin config, kept for traceparent-protocol cutoffs. */
+  private readonly config: GatewayConfig;
   private readonly defaultAgentId: string;
   private readonly agentResponseTimeoutMs: number;
   private readonly security: GatewayConfig["security"];
   private readonly taskContextByTaskId: Map<string, string>;
   private readonly wsPool: GatewayRpcConnectionPool;
+  /** When `false`, the plugin skips stamping a `traceparent` on outbound
+   *  `agent` / `chat.history` IPC frames (per
+   *  `observability.traceparent.enabled`).  Defaults to `true`. */
+  private readonly traceparentEnabled: boolean;
   /** Per-contextId dispatch queue to serialize concurrent tasks sharing a context. */
   private readonly dispatchQueues = new Map<string, Promise<void>>();
 
   constructor(api: OpenClawPluginApi, config: GatewayConfig) {
     this.api = api;
+    this.config = config;
     this.defaultAgentId = config.routing.defaultAgentId;
     this.security = config.security;
 
@@ -1272,6 +1515,12 @@ export class OpenClawAgentExecutor implements AgentExecutor {
 
     this.taskContextByTaskId = new Map();
     this.wsPool = new GatewayRpcConnectionPool();
+
+    // `observability.traceparent` is opt-in but produced by the real plugin
+    // configuration parser in `index.ts`.  Tests and consumers that build
+    // a partial `GatewayConfig` directly might omit it, so fall back to
+    // "enabled by default" (matching the parsed-on-disk default).
+    this.traceparentEnabled = config.observability?.traceparent?.enabled !== false;
   }
 
   /** Clean up the WS connection pool. Call this during plugin shutdown. */
@@ -1360,8 +1609,17 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       // Serialize dispatch per contextId to prevent race conditions on the
       // session .jsonl file when two tasks share the same contextId.
       // See: https://github.com/win4r/openclaw-a2a-gateway/issues/81
+      //
+      // Pick an upstream traceparent:
+      //  1. prefer the value carried on the inbound A2A message (so a peer
+      //     that already has an active trace stays on the same trace)
+      //  2. fall back to whatever the active-trace hook reports (typically
+      //     an AsyncLocalStorage-wrapped OTel span)
+      //  3. otherwise let the dispatch helper mint a fresh root trace
+      const upstreamTrace = pickUpstreamTraceparent(requestContext);
+
       agentResponse = await enqueueDispatch(this.dispatchQueues, contextId, () =>
-        this.dispatchViaGatewayRpc(agentId, requestContext.userMessage, contextId),
+        this.dispatchViaGatewayRpc(agentId, requestContext.userMessage, contextId, upstreamTrace),
       );
     } catch (err: unknown) {
       clearInterval(heartbeat);
@@ -1478,6 +1736,13 @@ export class OpenClawAgentExecutor implements AgentExecutor {
     agentId: string,
     userMessage: unknown,
     contextId: string,
+    /**
+     * Caller-supplied upstream trace context (parsed from A2A metadata or
+     * the surrounding OTel/async context).  Optional — when omitted the
+     * helper mints a fresh root trace, which means this dispatch becomes
+     * the trace origin for everything downstream of the `agent` RPC.
+     */
+    upstreamTrace?: W3CTraceContext,
   ): Promise<AgentResponse> {
     const messageText = extractInboundMessageText(userMessage);
     const gatewayConfig = this.resolveGatewayRuntimeConfig();
@@ -1499,11 +1764,28 @@ export class OpenClawAgentExecutor implements AgentExecutor {
         sessionKey,
       };
 
+      // Build a fresh traceparent for THIS request.  Even though the
+      // upstream trace is the same across calls, we MUST mint a new span
+      // id per `agent`/`chat.history` req — see
+      // `docs/gateway/opentelemetry.md` §"Each request, independent
+      // injection".  Reusing one traceparent across requests would lump
+      // every outbound RPC into a single span, hiding the actual control
+      // flow in any tracing UI.
+      //
+      // Skipped entirely when `observability.traceparent.enabled` is
+      // explicitly false.  When the helper returns `undefined`, the IPC
+      // frame is sent WITHOUT a top-level `traceparent` and the Gateway
+      // will mint a fresh root trace of its own.
+      const traceparent = this.traceparentEnabled
+        ? buildOutboundTraceparent(upstreamTrace)
+        : undefined;
+
       const finalPayload = await gateway.request(
         "agent",
         agentParams,
         this.agentResponseTimeoutMs,
         true,
+        traceparent,
       );
       const finalBody = asObject(finalPayload);
       const status = asString(finalBody?.status);
@@ -1519,11 +1801,18 @@ export class OpenClawAgentExecutor implements AgentExecutor {
 
       // sessionKey is always available (deterministic from contextId),
       // so we can always try to retrieve the latest assistant reply from history.
+      // The `chat.history` req is a brand-new RPC; mint a fresh child span
+      // even though it's logically attached to the upstream trace.  This
+      // matches the per-call rule documented in opentelemetry.md.
+      const historyTraceparent = this.traceparentEnabled
+        ? buildOutboundTraceparent(upstreamTrace)
+        : undefined;
       const historyPayload = await gateway.request(
         "chat.history",
         { sessionKey, limit: 50 },
         GATEWAY_REQUEST_TIMEOUT_MS,
         false,
+        historyTraceparent,
       );
       const historyText = extractLatestAssistantReply(historyPayload);
       if (historyText) {
@@ -1547,6 +1836,23 @@ export class OpenClawAgentExecutor implements AgentExecutor {
     const tlsEnabled = gatewayTls.enabled === true;
     const scheme = tlsEnabled ? "wss" : "ws";
 
+    // Operator-tunable protocol cutoffs for traceparent propagation.
+    // Defaults match the protocol version that added `traceparent` to
+    // `RequestFrameSchema` (version 5).  Operators on older Gateway
+    // builds can lower `minTraceparentProtocol` to (effectively) zero
+    // to force-stamp traceparent on legacy servers — but doing so
+    // will produce `invalid request frame` errors from servers below
+    // the configured cutoff, which is the user's choice to make.
+    const traceparentCfg = (this.config?.observability as any)?.traceparent;
+    const minTraceparentProtocol =
+      typeof traceparentCfg?.minProtocolRequired === "number" && traceparentCfg.minProtocolRequired >= 0
+        ? traceparentCfg.minProtocolRequired
+        : 5;
+    const maxProtocol =
+      typeof traceparentCfg?.maxProtocol === "number" && traceparentCfg.maxProtocol > 0
+        ? traceparentCfg.maxProtocol
+        : 5;
+
     return {
       port,
       wsUrl: `${scheme}://localhost:${port}`,
@@ -1554,6 +1860,8 @@ export class OpenClawAgentExecutor implements AgentExecutor {
       gatewayToken: asString(gatewayAuth.token) || "",
       gatewayPassword: asString(gatewayAuth.password) || "",
       hooksToken: asString(hooks.token) || "",
+      maxProtocol,
+      minTraceparentProtocol,
     };
   }
 

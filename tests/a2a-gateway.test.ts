@@ -205,7 +205,7 @@ describe("a2a-gateway plugin", () => {
     }
   });
 
-  it("advertises OpenClaw gateway protocol compatibility through version 4", async () => {
+  it("advertises OpenClaw gateway protocol compatibility through version 5 (traceparent)", async () => {
     const api = createApi();
     let capturedConnectParams: Record<string, unknown> | undefined;
 
@@ -241,7 +241,13 @@ describe("a2a-gateway plugin", () => {
       );
 
       assert.equal(capturedConnectParams?.minProtocol, 3);
-      assert.equal(capturedConnectParams?.maxProtocol, 4);
+      // Bumped from 4 to 5 — the version that introduces the
+      // top-level `traceparent` field on `req` frames.  Older
+      // Gateways still get our `connect` (they negotiate inside
+      // [3, 4] since 4 < maxProtocol=5 and they pick the highest
+      // they support), and `request()` then drops the field per
+      // the captured `protocol` number.
+      assert.equal(capturedConnectParams?.maxProtocol, 5);
     } finally {
       executor?.close();
       (globalThis as any).WebSocket = originalWebSocket;

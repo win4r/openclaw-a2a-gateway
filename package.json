@@ -21,7 +21,9 @@
   "scripts": {
     "build": "tsc",
     "prepack": "npm run build",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "tsx --test tests/*.test.ts",
+    "verify:traceparent": "tsx scripts/verify-traceparent.mjs",
+    "verify:traceparent:legacy": "tsx scripts/verify-traceparent.mjs -- --legacy-gateway"
   },
   "dependencies": {
     "@a2a-js/sdk": "^0.3.13",
@@ -30,7 +32,8 @@
     "express": "^4.21.2",
     "multicast-dns": "^7.2.5",
     "uuid": "^9.0.1",
-    "ws": "^8.20.0"
+    "ws": "^8.20.0",
+    "tsx": "^4.19.0"
   },
   "openclaw": {
     "extensions": [
@@ -44,7 +47,6 @@
     "@types/uuid": "^10.0.0",
     "openclaw": "^2026.3.2",
     "supertest": "^7.1.4",
-    "tsx": "^4.19.0",
     "typescript": "^5.9.3"
   }
 }

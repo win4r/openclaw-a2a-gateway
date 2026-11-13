@@ -250,6 +250,35 @@
             "type": "string",
             "default": "~/.openclaw/a2a-audit.jsonl",
             "description": "Path for the JSONL audit log file (separate from structured logs)."
+          },
+          "traceparent": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "W3C `traceparent` propagation for OpenClaw IPC and outbound A2A peer calls. Defaults to ON. Each RPC mints a fresh child span so concurrent requests don't share a span.",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "Enable W3C `traceparent` propagation. When true, every outbound `agent`/`chat.history`/`*.send` IPC frame carries a traceparent at the top level (≤128 chars), and peer HTTP/gRPC calls carry the same value as a header / metadata. Disable only for debugging — propagation is silent and zero-cost on the hot path."
+              },
+              "propagateOnConnect": {
+                "type": "boolean",
+                "default": false,
+                "description": "Reserved for future use: when true, the plugin would also stamp the initial `connect` frame with a traceparent. Today, OpenClaw Gateway ignores traceparent on `connect` per docs/gateway/opentelemetry.md, so the value of this switch is purely diagnostic."
+              },
+              "minProtocolRequired": {
+                "type": "number",
+                "default": 5,
+                "minimum": 0,
+                "description": "Negotiated `protocol` floor for traceparent gating. When the Gateway negotiates below this number, the plugin drops the top-level `traceparent` from outgoing `req` frames so the server's `RequestFrameSchema` (which uses `closedObject` / strict unknown-key rejection) doesn't reject them with `invalid request frame: at root: unexpected property 'traceparent'`. Default 5 — the version that introduces `traceparent` in the schema. Setting to 0 disables the gate (forces the field; will break on legacy servers)."
+              },
+              "maxProtocol": {
+                "type": "number",
+                "default": 5,
+                "minimum": 1,
+                "description": "Highest protocol version the plugin advertises during `connect`. The Gateway negotiates within `[minProtocol=3, maxProtocol]`. Default 5. Raise this when running against a newer OpenClaw build that supports a higher protocol version with new features."
+              }
+            }
           }
         }
       },

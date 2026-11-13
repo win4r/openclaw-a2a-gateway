@@ -17,6 +17,17 @@ import { grpcService, A2AService, UserBuilder as GrpcUserBuilder } from "@a2a-js
 import { Server as GrpcServer, ServerCredentials, status as GrpcStatus } from "@grpc/grpc-js";
 import express from "express";
 
+import {
+  parseTraceparent,
+  runWithUpstreamTrace,
+  getActiveUpstreamTrace,
+  type W3CTraceContext,
+} from "./src/internal/traceparent.js";
+import {
+  wrapGrpcServiceWithTraceparent,
+} from "./src/internal/grpc-traceparent.js";
+import { traceparentMiddleware } from "./src/internal/inbound-middleware.js";
+
 import { buildAgentCard } from "./src/agent-card.js";
 import { A2AClient } from "./src/client.js";
 import {
@@ -268,6 +279,38 @@ export function parseConfig(raw: unknown, resolvePath?: (nextPath: string) => st
         path.join(os.homedir(), ".openclaw", "a2a-audit.jsonl"),
         resolvePath,
       ),
+      // W3C traceparent propagation: defaults to ON so the A2A dispatch
+      // path (executor → IPC → agent) stays on the same trace as the
+      // calling peer.  Set `observability.traceparent.enabled = false`
+      // to fully disable.  `propagateOnConnect` is a no-op today because
+      // the Gateway ignores traceparent on the initial connect frame
+      // (see docs/gateway/opentelemetry.md) — kept in the schema for
+      // forward-compatibility with future Gateway versions.
+      traceparent: (() => {
+        const raw = observability.traceparent != null
+          ? asObject(observability.traceparent)
+          : undefined;
+        // Only honor explicit protocol cutoffs from the user — keep
+        // the field off the parsed config when no raw value was set so
+        // the executor's defaults (5 / 5) take over.  This preserves
+        // the previous behavior where operators could upgrade a future
+        // Gateway version by raising `maxProtocol` without touching
+        // anything else.
+        const minProto =
+          raw && typeof raw.minProtocolRequired === "number" && Number.isFinite(raw.minProtocolRequired)
+            ? raw.minProtocolRequired
+            : undefined;
+        const maxProto =
+          raw && typeof raw.maxProtocol === "number" && Number.isFinite(raw.maxProtocol)
+            ? raw.maxProtocol
+            : undefined;
+        return {
+          enabled: raw ? asBoolean(raw.enabled, true) : true,
+          ...(raw ? { propagateOnConnect: asBoolean(raw.propagateOnConnect, false) } : {}),
+          ...(minProto !== undefined ? { minProtocolRequired: minProto } : {}),
+          ...(maxProto !== undefined ? { maxProtocol: maxProto } : {}),
+        } satisfies NonNullable<import("./src/types.js").ObservabilityConfigTraceparent>;
+      })(),
     },
     timeouts: {
       agentResponseTimeoutMs: asNumber(timeouts.agentResponseTimeoutMs, 300_000),
@@ -330,7 +373,13 @@ const plugin = {
     });
     const auditLogger = new AuditLogger(config.observability.auditLogPath);
     const pushStore = new PushNotificationStore();
-    const client = new A2AClient();
+    const client = new A2AClient({
+      // W3C `traceparent` propagation: enabled by default.  When turned
+      // off, every outbound A2A call to a peer (REST, JSON-RPC, or gRPC)
+      // is sent without a `traceparent` header / metadata entry.  See
+      // `src/internal/traceparent.ts` for the carrier schema.
+      traceparentEnabled: config.observability.traceparent?.enabled !== false,
+    });
     const taskStore = new FileTaskStore(config.storage.tasksDir);
     const executor = new QueueingAgentExecutor(
       new OpenClawAgentExecutor(api, config),
@@ -490,6 +539,15 @@ const plugin = {
     // req._body is already set). base64 inflates ~4/3; add 1MB envelope headroom.
     const a2aJsonBodyLimit = Math.ceil(config.security.maxInlineFileSizeBytes * 1.4) + 1_048_576;
     const a2aJsonParser = express.json({ limit: a2aJsonBodyLimit });
+
+    // Lift the inbound `traceparent` HTTP header into the AsyncLocalStorage
+    // store so the executor dispatch (and the `a2a.send` gateway method /
+    // `a2a_send_file` tool, when they originate within the same async
+    // scope) can pick it up.  Installed BEFORE body parsing and SDK
+    // handlers so it wraps the entire downstream pipeline.
+    const traceparentEnabled = config.observability.traceparent?.enabled !== false;
+    app.use(traceparentMiddleware({ enabled: traceparentEnabled }));
+
     app.use(a2aJsonParser);
 
     const createHttpMetricsMiddleware =
@@ -768,6 +826,11 @@ const plugin = {
           }
           api.logger[level](details ? `${msg}: ${JSON.stringify(details)}` : msg);
         },
+        // Thread the inbound trace (if any) into the outbound peer call —
+        // resolves from the AsyncLocalStorage store installed by the inbound
+        // express / gRPC middleware.  When unset the A2A client mints a
+        // fresh root trace, so propagation is still well-formed.
+        upstreamTrace: getActiveUpstreamTrace(),
       };
       client
         .sendMessage(peer, message, sendOptions)
@@ -867,6 +930,9 @@ const plugin = {
             const result = await client.sendMessage(peer, message, {
               healthManager: healthManager ?? undefined,
               retryConfig: config.resilience.retry,
+              // Propagate the inbound trace (if any) so the recipient peer
+              // stays on the same distributed trace as the A2A caller.
+              upstreamTrace: getActiveUpstreamTrace(),
             });
             if (result.ok) {
               return {
@@ -953,7 +1019,10 @@ const plugin = {
 
           grpcServer.addService(
             A2AService,
-            grpcService({ requestHandler, userBuilder: grpcUserBuilder as any })
+            wrapGrpcServiceWithTraceparent(
+              grpcService({ requestHandler, userBuilder: grpcUserBuilder as any }),
+              () => traceparentEnabled,
+            ),
           );
 
           await new Promise<void>((resolve, reject) => {

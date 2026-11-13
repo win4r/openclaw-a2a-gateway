@@ -23,6 +23,10 @@ import {
   TransportStats,
   type TransportEndpoint,
 } from "./transport-fallback.js";
+import {
+  buildOutboundTraceparent,
+  type W3CTraceContext,
+} from "./internal/traceparent.js";
 
 const nativeFetch = globalThis.fetch;
 
@@ -61,14 +65,23 @@ export class A2AClient {
   private destroyed = false;
 
   /**
+   * `false` short-circuits all W3C `traceparent` propagation for peer
+   * calls.  Default `true` — the helper still mints a child span per RPC
+   * even when no upstream trace is available, so the peer side sees a
+   * meaningful trace id without further configuration.
+   */
+  private readonly traceparentEnabled: boolean;
+
+  /**
    * Per-peer transport performance stats for adaptive ordering.
    * Bio-inspired: cells learn which signal pathway works best for a given
    * stimulus type and preferentially activate it (pathway selection).
    */
   private readonly peerTransportStats = new Map<string, TransportStats>();
 
-  constructor(config?: { poolConfig?: ConnectionPoolConfig }) {
+  constructor(config?: { poolConfig?: ConnectionPoolConfig; traceparentEnabled?: boolean }) {
     this.poolConfig = config?.poolConfig;
+    this.traceparentEnabled = config?.traceparentEnabled !== false;
   }
 
   private getOrCreateStats(peerName: string): TransportStats {
@@ -162,6 +175,14 @@ export class A2AClient {
    *
    * When a PeerHealthManager and RetryConfig are provided, the call is
    * wrapped with circuit-breaker checks and exponential-backoff retries.
+   *
+   * `upstreamTrace` may carry a parsed `W3CTraceContext` (e.g. lifted from
+   * an inbound A2A `message/send` or an OTel/AsyncLocalStorage hook).  When
+   * provided, a fresh child traceparent is minted for this outbound call
+   * and propagated to the peer via the `traceparent` HTTP header (REST /
+   * JSON-RPC) or gRPC metadata.  Per `docs/gateway/opentelemetry.md` the
+   * span id MUST be regenerated for every outbound RPC — otherwise the
+   * peer would see a single mega-span for the whole pool of calls.
    */
   async sendMessage(
     peer: PeerConfig,
@@ -170,8 +191,16 @@ export class A2AClient {
       healthManager?: PeerHealthManager;
       retryConfig?: RetryConfig;
       log?: (level: "info" | "warn", msg: string, details?: Record<string, unknown>) => void;
+      /**
+       * Optional upstream trace context.  When omitted, the helper
+       * mints a fresh root trace so the peer call still carries a valid
+       * traceparent (useful when the operator has no ambient OTel span
+       * but still wants trace continuity on the receiving side).
+       */
+      upstreamTrace?: W3CTraceContext;
     },
   ): Promise<OutboundSendResult> {
+    const upstreamTrace = options?.upstreamTrace;
     const healthManager = options?.healthManager;
     const retryConfig = options?.retryConfig;
 
@@ -184,7 +213,7 @@ export class A2AClient {
       };
     }
 
-    const doSend = () => this.doSendMessage(peer, message, options?.log);
+    const doSend = () => this.doSendMessage(peer, message, options?.log, upstreamTrace);
 
     let result: OutboundSendResult;
     if (retryConfig && retryConfig.maxRetries > 0) {
@@ -214,11 +243,21 @@ export class A2AClient {
    *    (connection, timeout, 5xx) fall back to the next available transport.
    * 4. Auth errors (401/403) and A2A protocol errors are NOT retried on
    *    a different transport — they would fail identically.
+   *
+   * `upstreamTrace` is forwarded as a W3C `traceparent` carrier to the
+   * peer via:
+   *  - HTTP request header (REST + JSON-RPC transports)
+   *  - gRPC metadata (the SDK forwards `serviceParameters` to `_buildMetadata`)
+   *
+   * The carrier is minted FRESH per RPC, so even retries on the same
+   * logical call carry distinct span ids — exactly what
+   * `docs/gateway/opentelemetry.md` requires.
    */
   private async doSendMessage(
     peer: PeerConfig,
     message: Record<string, unknown>,
     log?: (level: "info" | "warn", msg: string, details?: Record<string, unknown>) => void,
+    upstreamTrace?: W3CTraceContext,
   ): Promise<OutboundSendResult> {
     const { baseUrl, path } = parseAgentCardUrl(peer.agentCardUrl);
     const { factory } = this.buildFactory(peer);
@@ -251,6 +290,27 @@ export class A2AClient {
         serviceParameters.authorization = `Bearer ${peer.auth.token}`;
       } else {
         serviceParameters["x-api-key"] = peer.auth.token;
+      }
+    }
+
+    // Mint a fresh child traceparent for this RPC.  When `upstreamTrace` is
+    // omitted (the common case) the helper falls back to the active-trace
+    // hook installed via `setTraceparentHooks` (AsyncLocalStorage-friendly)
+    // and ultimately to a brand-new root trace.  Either way the value is
+    // well-formed and ≤ 55 chars — far below the 128-char hard cap that
+    // `RequestFrameSchema` imposes on the IPC side.
+    //
+    // For HTTP-based transports (REST + JSON-RPC) this lands as a literal
+    // `traceparent: <value>` header; for gRPC it ends up in `Metadata`
+    // via `_buildMetadata` in the SDK's `GrpcTransport`.  The peer side
+    // can lift it directly into its own OTel/async context.
+    //
+    // Skipped entirely when the client is configured with
+    // `traceparentEnabled: false`.
+    if (this.traceparentEnabled) {
+      const traceparent = buildOutboundTraceparent(upstreamTrace);
+      if (traceparent) {
+        serviceParameters["traceparent"] = traceparent;
       }
     }
 
