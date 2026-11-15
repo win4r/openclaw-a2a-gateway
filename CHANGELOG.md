@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- Align the plugin manifest version with package version 1.5.1 and remove ignored `defaultConfig` metadata; runtime defaults are unchanged.
+
 ## [1.5.1] - 2026-07-04
 
 ### Fixed
