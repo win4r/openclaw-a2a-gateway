@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import plugin from "../index.js";
+import plugin, { parseConfig } from "../index.js";
 import { buildAgentCard } from "../src/agent-card.js";
 import { OpenClawAgentExecutor } from "../src/executor.js";
 import type { GatewayConfig } from "../src/types.js";
@@ -54,9 +54,10 @@ describe("session key format (PR #9, issue #8)", () => {
 
     const originalWebSocket = (globalThis as any).WebSocket;
     (globalThis as any).WebSocket = MockWS;
+    let executor: OpenClawAgentExecutor | undefined;
 
     try {
-      const executor = new OpenClawAgentExecutor(api, makeConfig() as unknown as GatewayConfig);
+      executor = new OpenClawAgentExecutor(api, makeConfig() as unknown as GatewayConfig);
 
       await executor.execute(
         {
@@ -97,6 +98,7 @@ describe("session key format (PR #9, issue #8)", () => {
         "session key should follow agent:{agentId}:a2a:{contextId} format"
       );
     } finally {
+      executor?.close();
       (globalThis as any).WebSocket = originalWebSocket;
     }
   });
@@ -116,6 +118,43 @@ describe("a2a-gateway plugin", () => {
     assert.equal(capabilities.streaming, true);
     assert.equal(capabilities.pushNotifications, false);
     assert.equal(capabilities.stateTransitionHistory, false);
+  });
+
+  it("defaults published gRPC URL to server.port + 1 when agentCard.grpcProxy is omitted", () => {
+    const config = parseConfig({
+      agentCard: {
+        name: "Test Agent",
+        url: "http://127.0.0.1:18800/a2a/jsonrpc",
+        skills: [{ name: "chat" }],
+      },
+      server: {
+        host: "127.0.0.1",
+        port: 18800,
+      },
+    });
+
+    const payload = buildAgentCard(config) as Record<string, unknown>;
+    const interfaces = payload.additionalInterfaces as Array<Record<string, unknown>>;
+    assert.equal(interfaces[2]?.url, "127.0.0.1:18801");
+  });
+
+  it("derives published gRPC URL from the same base URL when agentCard.grpcProxy is true", () => {
+    const config = parseConfig({
+      agentCard: {
+        name: "Test Agent",
+        url: "http://127.0.0.1:18800/a2a/jsonrpc",
+        grpcProxy: true,
+        skills: [{ name: "chat" }],
+      },
+      server: {
+        host: "127.0.0.1",
+        port: 18800,
+      },
+    });
+
+    const payload = buildAgentCard(config) as Record<string, unknown>;
+    const interfaces = payload.additionalInterfaces as Array<Record<string, unknown>>;
+    assert.equal(interfaces[2]?.url, "http://127.0.0.1:18800");
   });
 
   it("dispatches inbound messages via gateway RPC", async () => {
@@ -162,6 +201,49 @@ describe("a2a-gateway plugin", () => {
       const parts = message.parts as Array<Record<string, unknown>>;
       assert.equal(parts[0].text, "Gateway response");
     } finally {
+      (globalThis as any).WebSocket = originalWebSocket;
+    }
+  });
+
+  it("advertises OpenClaw gateway protocol compatibility through version 4", async () => {
+    const api = createApi();
+    let capturedConnectParams: Record<string, unknown> | undefined;
+
+    const MockWS = createMockWebSocketClass({
+      onConnect: (params) => {
+        capturedConnectParams = params;
+        return { status: "ok" };
+      },
+    });
+
+    const originalWebSocket = (globalThis as any).WebSocket;
+    (globalThis as any).WebSocket = MockWS;
+    let executor: OpenClawAgentExecutor | undefined;
+
+    try {
+      executor = new OpenClawAgentExecutor(api, makeConfig() as unknown as GatewayConfig);
+
+      await executor.execute(
+        {
+          taskId: "task-protocol",
+          contextId: "ctx-protocol",
+          userMessage: {
+            messageId: "msg-protocol",
+            role: "user",
+            agentId: "writer-agent",
+            parts: [{ kind: "text", text: "test protocol version" }],
+          },
+        } as any,
+        {
+          publish() {},
+          finished() {},
+        } as any
+      );
+
+      assert.equal(capturedConnectParams?.minProtocol, 3);
+      assert.equal(capturedConnectParams?.maxProtocol, 4);
+    } finally {
+      executor?.close();
       (globalThis as any).WebSocket = originalWebSocket;
     }
   });

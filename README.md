@@ -1,3 +1,5 @@
+# [🚀观看我的哔哩哔哩视频](https://space.bilibili.com/3493277319825652)
+
 # 🦞 OpenClaw A2A Gateway Plugin
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -171,6 +173,12 @@ openclaw config set plugins.entries.a2a-gateway.config.security.token "$TOKEN"
 ```bash
 openclaw config set plugins.entries.a2a-gateway.config.routing.defaultAgentId 'main'
 ```
+
+For a concrete peer-skills example, see
+[`docs/SOCIAL-AUTOMATION-ROUTING.md`](./docs/SOCIAL-AUTOMATION-ROUTING.md) for
+routing X/Twitter automation prompts to a TweetClaw-enabled OpenClaw peer.
+For routing X/Twitter read traffic to a GetXAPI-backed peer, see
+[`docs/SOCIAL-AUTOMATION-ROUTING-GETXAPI.md`](./docs/SOCIAL-AUTOMATION-ROUTING-GETXAPI.md).
 
 ### 7. Restart the gateway
 
@@ -365,7 +373,7 @@ If both servers are on the same local network, use their LAN IPs directly. Make 
 
 ### Option C: Public IP
 
-Use public IPs with bearer token authentication. Consider adding firewall rules to restrict access to known IPs.
+Use public IPs with bearer token authentication. Consider adding firewall rules to restrict access to known IPs. If you use a reverse proxy, please refer to [NETWORK.md](./docs/NETWORK.md).
 
 ## Full Example: Two-Server Setup
 
@@ -440,9 +448,10 @@ node <PLUGIN_PATH>/skill/scripts/a2a-send.mjs \
 | `agentCard.name` | string | `OpenClaw A2A Gateway` | Display name for this agent |
 | `agentCard.description` | string | `A2A bridge for OpenClaw agents` | Human-readable description |
 | `agentCard.url` | string | auto | JSON-RPC endpoint URL |
+| `agentCard.grpcProxy` | boolean | `false` | When `true`, publish the gRPC URL from the same base URL as JSON-RPC/REST to support reverse proxy, without changing the local listener |
 | `agentCard.skills` | array | `[{chat}]` | List of skills this agent offers |
 | `server.host` | string | `0.0.0.0` | Bind address |
-| `server.port` | number | `18800` | A2A HTTP port (gRPC on port+1) |
+| `server.port` | number | `18800` | A2A HTTP port (gRPC still listens on port+1) |
 | `storage.tasksDir` | string | `~/.openclaw/a2a-tasks` | Durable on-disk task store path |
 | `storage.taskTtlHours` | number | `72` | Auto-cleanup expired tasks after N hours |
 | `storage.cleanupIntervalMinutes` | number | `60` | How often to scan for expired tasks |
@@ -482,6 +491,12 @@ node <PLUGIN_PATH>/skill/scripts/a2a-send.mjs \
 | `routing.rules[].target.peer` | string | *required* | Peer to route to |
 | `routing.rules[].target.agentId` | string | — | Override agentId on the peer |
 | `routing.rules[].priority` | number | `0` | Higher = checked first |
+
+Example: route X/Twitter prompts to a TweetClaw peer by matching both prompt
+language and advertised peer skills. See
+[`docs/SOCIAL-AUTOMATION-ROUTING.md`](./docs/SOCIAL-AUTOMATION-ROUTING.md).
+For routing X/Twitter read traffic to a GetXAPI peer, see
+[`docs/SOCIAL-AUTOMATION-ROUTING-GETXAPI.md`](./docs/SOCIAL-AUTOMATION-ROUTING-GETXAPI.md).
 
 ### Resilience
 
@@ -528,7 +543,7 @@ node <PLUGIN_PATH>/skill/scripts/a2a-send.mjs \
 | `/.well-known/agent-card.json` | GET | Agent Card discovery *(alias: `/.well-known/agent.json`)* |
 | `/a2a/jsonrpc` | POST | A2A JSON-RPC transport |
 | `/a2a/rest` | POST | A2A REST transport |
-| `<host>:<port+1>` | gRPC | A2A gRPC transport |
+| `<host>:<port+1>` | gRPC | A2A gRPC transport *(or `${origin}` in the Agent Card when `agentCard.grpcUrl=true`)* |
 | `/a2a/metrics` | GET | Telemetry snapshot (optional bearer auth) |
 | `/a2a/push/register` | POST | Register push notification webhook |
 | `/a2a/push/:taskId` | DELETE | Unregister push notification |

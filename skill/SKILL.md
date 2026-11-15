@@ -93,6 +93,10 @@ Share this token with peers who need to send you messages.
 openclaw config set plugins.entries.a2a-gateway.config.routing.defaultAgentId 'main'
 ```
 
+For a concrete peer-skills route, read
+`docs/SOCIAL-AUTOMATION-ROUTING.md`. It shows how to route X/Twitter prompts to
+a TweetClaw-enabled peer while keeping credentials on that peer.
+
 ## Step 7: Add Peers
 
 ```bash

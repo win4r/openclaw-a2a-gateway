@@ -4,6 +4,45 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- Align the plugin manifest version with package version 1.5.1 and remove ignored `defaultConfig` metadata; runtime defaults are unchanged.
+
+## [1.5.1] - 2026-07-04
+
+### Fixed
+
+- **Republished with freshly built `dist/`** — the 1.5.0 npm tarball shipped stale compiled output under `dist/src/` (still gateway protocol v3), so installs on OpenClaw 2026.6.x failed the ws handshake with `ws protocol mismatch: min=3 max=3 expected=4` even though the source already declared protocol v4 (#79)
+
+### Added
+
+- `build` script and `prepack` hook — `dist/` is now rebuilt automatically before every `npm pack` / `npm publish`, so published artifacts can no longer go stale relative to `src/`
+
+## [1.5.0] - 2026-07-04
+
+### Added
+
+- **A2A DevTools CLI** (`cli/`, `@openclaw/a2a-cli`) — unified `a2a` command with 8 subcommands for gateway development and debugging: `card`, `send`, `status`, `health`, `discover`, `stream`, `bench`, `trace`
+- **WebSocket connection pool** — reuses gateway RPC connections for dispatch, cutting scheduling latency by 50%+ (#32, #60)
+- **Reverse proxy support** — run the gateway behind nginx/Caddy with path prefixes; proxy-aware URL handling plus deployment docs (#67)
+- A2A routing recipes for TweetClaw (#76) and GetXAPI (#78)
+
+### Changed
+
+- npm package is now the recommended quick-start install (`npm i openclaw-a2a-gateway`); `data/` and docs are excluded from the tarball
+
+### Fixed
+
+- **OpenClaw 2026.5.x compatibility** — restored gateway method registration and startup activation against the new plugin runtime
+- **OpenClaw gateway protocol v4 support** (#74)
+- Blocking A2A agent event responses no longer stall the event loop (#77)
+- Detect silent scope downgrade on cross-machine A2A connect (#54)
+- `defaultAgentId` now matches the OpenClaw default (`"main"`, not `"default"`) (#57, #59)
+- Raised A2A JSON body limit to allow inline file transfers (#69)
+- Removed deprecated `grpcServer.start()` call (#80)
+
 ## [1.4.0] - 2026-04-04
 
 ### Added

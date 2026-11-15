@@ -1,3 +1,5 @@
+# [🚀观看我的哔哩哔哩视频](https://space.bilibili.com/3493277319825652)
+
 # 🦞 OpenClaw A2A Gateway 插件
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -362,7 +364,7 @@ ping <对方的Tailscale_IP>
 
 ### 方案 C：公网 IP
 
-使用公网 IP + Bearer Token 认证。建议用防火墙限制来源 IP。
+使用公网 IP + Bearer Token 认证。建议用防火墙限制来源 IP。如果使用反向代理，请参考：[NETWORK_CN.md](./docs/NETWORK_CN.md)
 
 ## 完整示例：两台服务器配对
 
