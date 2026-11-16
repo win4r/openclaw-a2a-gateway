@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 
+import { TaskState } from "@a2a-js/sdk";
 import type { Task } from "@a2a-js/sdk";
 
 import { runTaskCleanup } from "../src/task-cleanup.js";
@@ -18,17 +19,20 @@ function makeTelemetry() {
 
 function makeTask(
   taskId: string,
-  state: string,
+  state: TaskState,
   timestamp?: string,
 ): Task {
   return {
-    kind: "task",
     id: taskId,
     contextId: `ctx-${taskId}`,
     status: {
-      state: state as any,
+      state,
+      message: undefined,
       ...(timestamp !== undefined ? { timestamp } : {}),
     },
+    artifacts: [],
+    history: [],
+    metadata: undefined,
   };
 }
 
@@ -41,9 +45,9 @@ describe("FileTaskStore extensions", () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "a2a-ttl-list-"));
     try {
       const store = new FileTaskStore(dir);
-      await store.save(makeTask("alpha-uno", "completed", hoursAgo(1)));
-      await store.save(makeTask("beta-dos", "failed", hoursAgo(2)));
-      await store.save(makeTask("gamma-tres", "working", hoursAgo(3)));
+      await store.save(makeTask("alpha-uno", TaskState.TASK_STATE_COMPLETED, hoursAgo(1)));
+      await store.save(makeTask("beta-dos", TaskState.TASK_STATE_FAILED, hoursAgo(2)));
+      await store.save(makeTask("gamma-tres", TaskState.TASK_STATE_WORKING, hoursAgo(3)));
 
       const ids = await store.listAll();
       assert.equal(ids.length, 3);
@@ -65,7 +69,7 @@ describe("FileTaskStore extensions", () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "a2a-ttl-del-"));
     try {
       const store = new FileTaskStore(dir);
-      await store.save(makeTask("doomed-task", "completed", hoursAgo(1)));
+      await store.save(makeTask("doomed-task", TaskState.TASK_STATE_COMPLETED, hoursAgo(1)));
 
       const before = await store.load("doomed-task");
       assert.ok(before, "task should exist before delete");
@@ -107,12 +111,12 @@ describe("FileTaskStore extensions", () => {
       assert.equal(exists, false, "dir should not exist before first save");
 
       // First save creates the directory
-      await store.save(makeTask("lazy-1", "completed", hoursAgo(1)));
+      await store.save(makeTask("lazy-1", TaskState.TASK_STATE_COMPLETED, hoursAgo(1)));
       const entries1 = await readdir(dir);
       assert.equal(entries1.length, 1);
 
       // Second save reuses the directory (no error)
-      await store.save(makeTask("lazy-2", "completed", hoursAgo(1)));
+      await store.save(makeTask("lazy-2", TaskState.TASK_STATE_COMPLETED, hoursAgo(1)));
       const entries2 = await readdir(dir);
       assert.equal(entries2.length, 2);
     } finally {
@@ -128,14 +132,14 @@ describe("FileTaskStore extensions", () => {
       const store = new FileTaskStore(path.join(blocker, "tasks"));
 
       await assert.rejects(
-        store.save(makeTask("first-attempt", "completed", hoursAgo(1))),
+        store.save(makeTask("first-attempt", TaskState.TASK_STATE_COMPLETED, hoursAgo(1))),
         (error: unknown) => (error as { code?: string } | undefined)?.code === "ENOTDIR",
       );
 
       await rm(blocker, { force: true });
       await mkdir(blocker, { recursive: true });
 
-      await store.save(makeTask("second-attempt", "completed", hoursAgo(1)));
+      await store.save(makeTask("second-attempt", TaskState.TASK_STATE_COMPLETED, hoursAgo(1)));
       const recovered = await store.load("second-attempt");
       assert.ok(recovered, "save should recover once the directory path becomes valid");
     } finally {
@@ -152,13 +156,13 @@ describe("Task TTL cleanup", () => {
       const telemetry = makeTelemetry();
 
       // Old terminal tasks — should be expired
-      await store.save(makeTask("old-completed-999", "completed", hoursAgo(100)));
-      await store.save(makeTask("old-failed-888", "failed", hoursAgo(200)));
-      await store.save(makeTask("old-canceled-777", "canceled", hoursAgo(150)));
-      await store.save(makeTask("old-rejected-666", "rejected", hoursAgo(80)));
+      await store.save(makeTask("old-completed-999", TaskState.TASK_STATE_COMPLETED, hoursAgo(100)));
+      await store.save(makeTask("old-failed-888", TaskState.TASK_STATE_FAILED, hoursAgo(200)));
+      await store.save(makeTask("old-canceled-777", TaskState.TASK_STATE_CANCELED, hoursAgo(150)));
+      await store.save(makeTask("old-rejected-666", TaskState.TASK_STATE_REJECTED, hoursAgo(80)));
 
       // Fresh terminal task — should survive
-      await store.save(makeTask("fresh-completed-111", "completed", hoursAgo(1)));
+      await store.save(makeTask("fresh-completed-111", TaskState.TASK_STATE_COMPLETED, hoursAgo(1)));
 
       const ttl72h = 72 * 3_600_000;
       const result = await runTaskCleanup(store, ttl72h, telemetry, silentLogger());
@@ -192,9 +196,9 @@ describe("Task TTL cleanup", () => {
       const telemetry = makeTelemetry();
 
       // Old but active — must NOT be deleted
-      await store.save(makeTask("working-ancient-555", "working", hoursAgo(500)));
-      await store.save(makeTask("submitted-old-444", "submitted", hoursAgo(300)));
-      await store.save(makeTask("input-required-333", "input-required", hoursAgo(200)));
+      await store.save(makeTask("working-ancient-555", TaskState.TASK_STATE_WORKING, hoursAgo(500)));
+      await store.save(makeTask("submitted-old-444", TaskState.TASK_STATE_SUBMITTED, hoursAgo(300)));
+      await store.save(makeTask("input-required-333", TaskState.TASK_STATE_INPUT_REQUIRED, hoursAgo(200)));
 
       const ttl1h = 1 * 3_600_000;
       const result = await runTaskCleanup(store, ttl1h, telemetry, silentLogger());
@@ -218,7 +222,7 @@ describe("Task TTL cleanup", () => {
       const telemetry = makeTelemetry();
 
       // Terminal but no timestamp — should skip
-      await store.save(makeTask("no-timestamp-222", "completed"));
+      await store.save(makeTask("no-timestamp-222", TaskState.TASK_STATE_COMPLETED));
 
       const ttl1h = 1 * 3_600_000;
       const result = await runTaskCleanup(store, ttl1h, telemetry, silentLogger());
@@ -264,7 +268,7 @@ describe("Task TTL cleanup", () => {
       const store = new FileTaskStore(dir);
       const telemetry = makeTelemetry();
 
-      await store.save(makeTask("race-1", "completed", hoursAgo(100)));
+      await store.save(makeTask("race-1", TaskState.TASK_STATE_COMPLETED, hoursAgo(100)));
 
       const [first, second] = await Promise.all([
         runTaskCleanup(store, 72 * 3_600_000, telemetry, silentLogger()),

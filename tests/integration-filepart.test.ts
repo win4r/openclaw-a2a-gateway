@@ -59,20 +59,17 @@ describe("integration: FilePart end-to-end", () => {
       const jsonRpcRequest = {
         jsonrpc: "2.0",
         id: uuidv4(),
-        method: "message/send",
+        method: "SendMessage",
         params: {
           message: {
             messageId: uuidv4(),
-            role: "user",
+            role: "ROLE_USER",
             parts: [
-              { kind: "text", text: "Analyze this image" },
+              { text: "Analyze this image" },
               {
-                kind: "file",
-                file: {
-                  uri: "https://user-uploads.example.com/photo.jpg",
-                  mimeType: "image/jpeg",
-                  name: "photo.jpg",
-                },
+                url: "https://user-uploads.example.com/photo.jpg",
+                mediaType: "image/jpeg",
+                filename: "photo.jpg",
               },
             ],
           },
@@ -93,32 +90,30 @@ describe("integration: FilePart end-to-end", () => {
       // The response should be a JSON-RPC result (not error)
       assert.ok(!body.error, `unexpected error: ${JSON.stringify(body.error)}`);
 
-      const result = body.result as Record<string, unknown>;
-      assert.ok(result, "result must exist");
+      const result = ((body.result as any)?.task ?? body.result) as Record<string, unknown>;
+      assert.ok(result, `result must exist: ${JSON.stringify(body)}`);
 
       // Result should be a Task (kind: "task") with completed status
-      assert.equal(result.kind, "task");
       const status = result.status as Record<string, unknown>;
-      assert.equal(status.state, "completed");
+      assert.equal(status.state, "TASK_STATE_COMPLETED");
 
       // Check the message parts in the response
       const message = status.message as Record<string, unknown>;
       const parts = message.parts as Array<Record<string, unknown>>;
 
-      const textParts = parts.filter((p) => p.kind === "text");
-      const fileParts = parts.filter((p) => p.kind === "file");
+      const textParts = parts.filter((p) => typeof p.text === "string");
+      const fileParts = parts.filter((p) => typeof p.url === "string" || typeof p.raw === "string");
 
       assert.ok(textParts.length >= 1, "response should have text part");
       assert.equal((textParts[0] as any).text, "Here is the generated image");
 
       assert.equal(fileParts.length, 1, "response should have exactly one file part");
-      const filePartFile = (fileParts[0] as any).file as { uri: string };
-      assert.equal(filePartFile.uri, "https://cdn.example.com/generated-chart.png");
+      assert.equal((fileParts[0] as any).url, "https://cdn.example.com/generated-chart.png");
 
       // Also verify artifacts contain FilePart
       const artifacts = result.artifacts as Array<{ parts: Array<Record<string, unknown>> }>;
       assert.ok(artifacts && artifacts.length >= 1, "should have artifacts");
-      const artifactFileParts = artifacts[0].parts.filter((p) => p.kind === "file");
+      const artifactFileParts = artifacts[0].parts.filter((p) => typeof p.url === "string" || typeof p.raw === "string");
       assert.equal(artifactFileParts.length, 1, "artifact should contain file part");
 
       await service!.stop({} as any);
@@ -151,16 +146,17 @@ describe("integration: FilePart end-to-end", () => {
       const jsonRpcRequest = {
         jsonrpc: "2.0",
         id: uuidv4(),
-        method: "message/send",
+        method: "SendMessage",
         params: {
           message: {
             messageId: uuidv4(),
-            role: "user",
+            role: "ROLE_USER",
             parts: [
-              { kind: "text", text: "Read this" },
+              { text: "Read this" },
               {
-                kind: "file",
-                file: { uri: "file:///etc/passwd", mimeType: "text/plain", name: "passwd" },
+                url: "file:///etc/passwd",
+                mediaType: "text/plain",
+                filename: "passwd",
               },
             ],
           },
@@ -176,10 +172,10 @@ describe("integration: FilePart end-to-end", () => {
 
       assert.equal(response.status, 200);
       const body = await response.json() as Record<string, unknown>;
-      const result = body.result as Record<string, unknown>;
+      const result = ((body.result as any)?.task ?? body.result) as Record<string, unknown>;
       assert.ok(result, "result must exist");
       const status = result.status as Record<string, unknown>;
-      assert.equal(status.state, "failed", "task should fail for file:// URI");
+      assert.equal(status.state, "TASK_STATE_FAILED", "task should fail for file:// URI");
 
       await service!.stop({} as any);
     } finally {
@@ -211,19 +207,16 @@ describe("integration: FilePart end-to-end", () => {
       const jsonRpcRequest = {
         jsonrpc: "2.0",
         id: uuidv4(),
-        method: "message/send",
+        method: "SendMessage",
         params: {
           message: {
             messageId: uuidv4(),
-            role: "user",
+            role: "ROLE_USER",
             parts: [
               {
-                kind: "file",
-                file: {
-                  uri: "https://cdn.example.com/malware.exe",
-                  mimeType: "application/x-executable",
-                  name: "malware.exe",
-                },
+                url: "https://cdn.example.com/malware.exe",
+                mediaType: "application/x-executable",
+                filename: "malware.exe",
               },
             ],
           },
@@ -239,10 +232,10 @@ describe("integration: FilePart end-to-end", () => {
 
       assert.equal(response.status, 200);
       const body = await response.json() as Record<string, unknown>;
-      const result = body.result as Record<string, unknown>;
+      const result = ((body.result as any)?.task ?? body.result) as Record<string, unknown>;
       assert.ok(result, "result must exist");
       const status = result.status as Record<string, unknown>;
-      assert.equal(status.state, "failed", "task should fail for disallowed MIME type");
+      assert.equal(status.state, "TASK_STATE_FAILED", "task should fail for disallowed MIME type");
 
       await service!.stop({} as any);
     } finally {
@@ -281,19 +274,16 @@ describe("integration: FilePart end-to-end", () => {
       const jsonRpcRequest = {
         jsonrpc: "2.0",
         id: uuidv4(),
-        method: "message/send",
+        method: "SendMessage",
         params: {
           message: {
             messageId: uuidv4(),
-            role: "user",
+            role: "ROLE_USER",
             parts: [
               {
-                kind: "file",
-                file: {
-                  bytes: largeBase64,
-                  mimeType: "image/png",
-                  name: "large.png",
-                },
+                raw: largeBase64,
+                mediaType: "image/png",
+                filename: "large.png",
               },
             ],
           },
@@ -309,10 +299,10 @@ describe("integration: FilePart end-to-end", () => {
 
       assert.equal(response.status, 200);
       const body = await response.json() as Record<string, unknown>;
-      const result = body.result as Record<string, unknown>;
-      assert.ok(result, "result must exist");
+      const result = ((body.result as any)?.task ?? body.result) as Record<string, unknown>;
+      assert.ok(result, `result must exist: ${JSON.stringify(body)}`);
       const status = result.status as Record<string, unknown>;
-      assert.equal(status.state, "failed", "task should fail for oversized inline file");
+      assert.equal(status.state, "TASK_STATE_FAILED", "task should fail for oversized inline file");
 
       await service!.stop({} as any);
     } finally {

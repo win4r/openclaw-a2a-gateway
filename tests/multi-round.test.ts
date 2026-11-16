@@ -4,7 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 
-import type { Task } from "@a2a-js/sdk";
+import { TaskState } from "@a2a-js/sdk";
+import type { AgentExecutionEvent, Task } from "@a2a-js/sdk";
 
 import { OpenClawAgentExecutor } from "../src/executor.js";
 import { FileTaskStore } from "../src/task-store.js";
@@ -36,7 +37,14 @@ async function executeRound(executor: OpenClawAgentExecutor, taskId: string, con
   );
 
   assert.equal(eventBus.isFinished(), true);
-  assert.equal((eventBus.events.at(-1) as Task).status.state, "completed");
+  const finalTask = unwrapTask(eventBus.events.at(-1));
+  assert.equal(finalTask?.status?.state, TaskState.TASK_STATE_COMPLETED);
+}
+
+/** Unwrap a v1 execution event into its task payload. */
+function unwrapTask(event: unknown): Task | undefined {
+  const ev = event as AgentExecutionEvent;
+  return ev?.kind === "task" ? ev.data : (ev as unknown as Task | undefined);
 }
 
 describe("multi-round conversation routing", () => {
@@ -171,15 +179,15 @@ describe("history preservation across rounds", () => {
       assert.equal(eventBus.isFinished(), true);
 
       // The completed task must carry the previous history
-      const completedTask = eventBus.events.at(-1) as Task;
-      assert.equal(completedTask.status.state, "completed");
+      const completedTask = unwrapTask(eventBus.events.at(-1))!;
+      assert.equal(completedTask.status?.state, TaskState.TASK_STATE_COMPLETED);
       assert.ok(completedTask.history, "completed task should have history");
       assert.equal(completedTask.history!.length, 2, "should carry 2 previous messages");
       assert.equal((completedTask.history![0] as any).messageId, "msg-round-1-user");
       assert.equal((completedTask.history![1] as any).messageId, "msg-round-1-agent");
 
       // The working event should also carry history
-      const workingTask = eventBus.events[0] as Task;
+      const workingTask = unwrapTask(eventBus.events[0])!;
       assert.ok(workingTask.history, "working task should have history");
       assert.equal(workingTask.history!.length, 2);
     } finally {
@@ -226,8 +234,8 @@ describe("history preservation across rounds", () => {
         eventBus.bus,
       );
 
-      const completedTask = eventBus.events.at(-1) as Task;
-      assert.equal(completedTask.status.state, "completed");
+      const completedTask = unwrapTask(eventBus.events.at(-1))!;
+      assert.equal(completedTask.status?.state, TaskState.TASK_STATE_COMPLETED);
       assert.ok(completedTask.history, "should have history");
       assert.equal(completedTask.history!.length, 200, "should cap at 200 messages");
       // Should keep the LATEST 200 (indices 50-249)
@@ -261,8 +269,8 @@ describe("history preservation across rounds", () => {
         eventBus.bus,
       );
 
-      const completedTask = eventBus.events.at(-1) as Task;
-      assert.equal(completedTask.status.state, "completed");
+      const completedTask = unwrapTask(eventBus.events.at(-1))!;
+      assert.equal(completedTask.status?.state, TaskState.TASK_STATE_COMPLETED);
       assert.ok(Array.isArray(completedTask.history), "history should be an array");
       assert.equal(completedTask.history!.length, 0, "first round should have empty history");
     } finally {
