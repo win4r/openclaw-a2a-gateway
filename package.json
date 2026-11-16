@@ -21,7 +21,8 @@
   "scripts": {
     "build": "tsc",
     "prepack": "npm run build",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "benchmark": "node --import tsx --test benchmarks/benchmark.ts"
   },
   "dependencies": {
     "@a2a-js/sdk": "^0.3.13",

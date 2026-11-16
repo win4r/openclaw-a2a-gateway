@@ -664,7 +664,7 @@ skill/
 | 적응형 전송 | 피어가 여러 전송 방식을 노출할 때 | 자동 (사용에서 학습) |
 | MM 소프트 동시성 | 고처리량 서브초 작업 | `limits.saturation` |
 
-> Benchmark: `node --import tsx --test tests/benchmark.test.ts`
+> Benchmark: `npm run benchmark`
 
 ## 버전 기록
 
