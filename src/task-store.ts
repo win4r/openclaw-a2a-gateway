@@ -1,11 +1,59 @@
 import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { Task } from "@a2a-js/sdk";
+import { TaskState } from "@a2a-js/sdk";
+import type { ListTasksRequest, ListTasksResponse, Task } from "@a2a-js/sdk";
 import type { ServerCallContext, TaskStore } from "@a2a-js/sdk/server";
 
+function taskReplacer(_key: string, value: unknown): unknown {
+  if (value instanceof Uint8Array) {
+    return { __a2aRawBytes: Buffer.from(value).toString("base64") };
+  }
+  const candidate = value as { type?: unknown; data?: unknown } | null;
+  if (candidate?.type === "Buffer" && Array.isArray(candidate.data)) {
+    return { __a2aRawBytes: Buffer.from(candidate.data).toString("base64") };
+  }
+  return value;
+}
+
+function taskReviver(_key: string, value: unknown): unknown {
+  const candidate = value as { type?: unknown; data?: unknown } | null;
+  const encoded = (value as { __a2aRawBytes?: unknown } | null)?.__a2aRawBytes;
+  if (typeof encoded === "string") {
+    return Buffer.from(encoded, "base64");
+  }
+  if (
+    candidate?.type === "Buffer" &&
+    Array.isArray(candidate.data) &&
+    candidate.data.every((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 255)
+  ) {
+    return Buffer.from(candidate.data);
+  }
+  return value;
+}
+
 function cloneTask(task: Task): Task {
-  return JSON.parse(JSON.stringify(task)) as Task;
+  return JSON.parse(JSON.stringify(task, taskReplacer), taskReviver) as Task;
+}
+
+/** Apply ListTasks projections (history truncation, artifact stripping). */
+function projectTask(task: Task, params: ListTasksRequest): Task {
+  const projected = cloneTask(task);
+
+  if (!Array.isArray(projected.history)) {
+    projected.history = [];
+  } else if (params.historyLength !== undefined) {
+    projected.history =
+      params.historyLength === 0 ? [] : projected.history.slice(-params.historyLength);
+  }
+
+  if (!Array.isArray(projected.artifacts)) {
+    projected.artifacts = [];
+  } else if (!params.includeArtifacts) {
+    projected.artifacts = [];
+  }
+
+  return projected;
 }
 
 function taskFileName(taskId: string): string {
@@ -23,7 +71,7 @@ export class FileTaskStore implements TaskStore {
   async load(taskId: string, _context?: ServerCallContext): Promise<Task | undefined> {
     try {
       const payload = await readFile(this.taskPath(taskId), "utf8");
-      return JSON.parse(payload) as Task;
+      return JSON.parse(payload, taskReviver) as Task;
     } catch (error: unknown) {
       const code = (error as { code?: string } | undefined)?.code;
       if (code === "ENOENT") {
@@ -39,7 +87,7 @@ export class FileTaskStore implements TaskStore {
     const nextTask = cloneTask(task);
     const targetPath = this.taskPath(task.id);
     const tmpPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
-    const payload = `${JSON.stringify(nextTask, null, 2)}\n`;
+    const payload = `${JSON.stringify(nextTask, taskReplacer, 2)}\n`;
 
     await writeFile(tmpPath, payload, "utf8");
 
@@ -77,6 +125,55 @@ export class FileTaskStore implements TaskStore {
         // ignore
       }
     }
+  }
+
+  /**
+   * v1 TaskStore.list \u2014 filesystem-backed listing with filtering and
+   * offset-based pagination (page token encodes the next offset).
+   */
+  async list(params: ListTasksRequest, _context?: ServerCallContext): Promise<ListTasksResponse> {
+    const ids = await this.listAll();
+    const afterTs = params.statusTimestampAfter ? Date.parse(params.statusTimestampAfter) : NaN;
+    const matched: Task[] = [];
+
+    for (const id of ids) {
+      let task: Task | undefined;
+      try {
+        task = await this.load(id);
+      } catch {
+        continue; // unreadable/corrupt entry \u2014 skip rather than fail the whole page
+      }
+      if (!task) continue;
+      if (params.contextId && task.contextId !== params.contextId) continue;
+      if (
+        params.status !== TaskState.TASK_STATE_UNSPECIFIED &&
+        task.status?.state !== params.status
+      ) {
+        continue;
+      }
+      if (!Number.isNaN(afterTs)) {
+        const ts = task.status?.timestamp ? Date.parse(task.status.timestamp) : NaN;
+        if (Number.isNaN(ts) || ts < afterTs) continue;
+      }
+      matched.push(projectTask(task, params));
+    }
+
+    const pageSize =
+      params.pageSize && params.pageSize > 0 ? Math.min(Math.floor(params.pageSize), 100) : 50;
+    let offset = 0;
+    if (params.pageToken) {
+      const parsed = Number.parseInt(params.pageToken, 10);
+      if (Number.isInteger(parsed) && parsed > 0) offset = parsed;
+    }
+
+    const tasks = matched.slice(offset, offset + pageSize);
+    const nextOffset = offset + pageSize;
+    return {
+      tasks,
+      nextPageToken: nextOffset < matched.length ? String(nextOffset) : "",
+      pageSize,
+      totalSize: matched.length,
+    };
   }
 
   /** List all stored task IDs. */

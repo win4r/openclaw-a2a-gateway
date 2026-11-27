@@ -10,7 +10,10 @@ import {
   type HttpHeaders,
 } from "@a2a-js/sdk/client";
 import { GrpcTransportFactory } from "@a2a-js/sdk/client/grpc";
-import type { MessageSendParams, Message } from "@a2a-js/sdk";
+import { Role } from "@a2a-js/sdk";
+import type { Message, SendMessageRequest } from "@a2a-js/sdk";
+import { LEGACY_METHOD_MESSAGE_SEND } from "@a2a-js/sdk/compat/v0_3";
+import { toV1Parts } from "./types-v1.js";
 
 import { ConnectionPool, type ConnectionPoolConfig } from "./connection-pool.js";
 import type { OutboundSendResult, PeerConfig, RetryConfig } from "./types.js";
@@ -228,21 +231,37 @@ export class A2AClient {
     // ------------------------------------------------------------------
     const targetAgentId = typeof (message as any)?.agentId === "string" ? String((message as any).agentId) : "";
 
-    const outboundMessage: any = {
-      kind: "message",
+    const role =
+      String((message as any)?.role ?? "user").toLowerCase() === "agent"
+        ? Role.ROLE_AGENT
+        : Role.ROLE_USER;
+
+    const outboundMessage: Message = {
       messageId: (message.messageId as string) || uuidv4(),
-      role: (message.role as Message["role"]) || "user",
-      parts: (message.parts as Message["parts"]) || [
-        { kind: "text", text: String(message.text || message.message || "") },
-      ],
+      contextId: typeof (message as any)?.contextId === "string" ? (message as any).contextId : "",
+      taskId: typeof (message as any)?.taskId === "string" ? (message as any).taskId : "",
+      role,
+      parts: toV1Parts(
+        (message.parts as unknown[] | undefined) ?? [
+          String(message.text || message.message || ""),
+        ],
+      ),
+      metadata: undefined,
+      extensions: [],
+      referenceTaskIds: [],
     };
 
     if (targetAgentId) {
-      outboundMessage.agentId = targetAgentId;
+      // v1 MessageFns.toJSON drops unknown fields, so route agentId through
+      // metadata for peer-side routing (OpenClaw extension).
+      outboundMessage.metadata = { ...(outboundMessage.metadata ?? {}), agentId: targetAgentId };
     }
 
-    const sendParams: MessageSendParams = {
+    const sendParams: SendMessageRequest = {
+      tenant: "",
       message: outboundMessage,
+      configuration: undefined,
+      metadata: undefined,
     };
 
     const serviceParameters: Record<string, string> = {};
@@ -270,19 +289,48 @@ export class A2AClient {
       });
       const agentCard = await resolver.resolve(baseUrl, path);
 
-      // Build transport list: main URL + additionalInterfaces
-      const mainTransport = agentCard.preferredTransport ?? "JSONRPC";
-      const allInterfaces: TransportEndpoint[] = [
-        { url: agentCard.url, transport: mainTransport },
-      ];
+      // Legacy peer detection (#95 dual-stack): SDK 1.x transports negotiate
+      // v1 only, so speak legacy JSON-RPC directly for v0.3 peers.
+      const cardAny = agentCard as unknown as Record<string, unknown>;
+      const supportedIfaces = Array.isArray(cardAny.supportedInterfaces)
+        ? (cardAny.supportedInterfaces as Array<Record<string, unknown>>)
+        : [];
+      const cardIsLegacy =
+        supportedIfaces.length === 0 ||
+        String(cardAny.protocolVersion ?? "").startsWith("0.");
+      if (cardIsLegacy) {
+        return this.sendViaLegacyJsonRpc(peer, cardAny, outboundMessage, requestOptions);
+      }
 
-      if (agentCard.additionalInterfaces) {
-        for (const iface of agentCard.additionalInterfaces) {
-          // Avoid duplicate of the main endpoint
-          if (iface.url !== agentCard.url || iface.transport !== mainTransport) {
-            allInterfaces.push({ url: iface.url, transport: iface.transport });
-          }
-        }
+      // Build transport list, normalizing BOTH card generations:
+      //   v0.3: url + preferredTransport + additionalInterfaces[]
+      //   v1:   supportedInterfaces[] ({ url, protocolBinding })
+      const legacyCard = agentCard as unknown as {
+        url?: string;
+        preferredTransport?: string;
+        additionalInterfaces?: { url?: string; transport?: string }[];
+      };
+
+      const allInterfaces: TransportEndpoint[] = [];
+      const seenEndpoints = new Set<string>();
+      const pushEndpoint = (url?: string, transport?: string) => {
+        if (!url || !transport) return;
+        const key = `${transport}:${url}`;
+        if (seenEndpoints.has(key)) return;
+        seenEndpoints.add(key);
+        allInterfaces.push({ url, transport });
+      };
+
+      // v0.3 generation first (preferred entry keeps priority), then v1.
+      pushEndpoint(legacyCard.url, legacyCard.preferredTransport ?? "JSONRPC");
+      for (const iface of legacyCard.additionalInterfaces ?? []) {
+        pushEndpoint(iface.url, iface.transport);
+      }
+      for (const iface of agentCard.supportedInterfaces ?? []) {
+        pushEndpoint(iface.url, iface.protocolBinding);
+      }
+      if (allInterfaces.length === 0) {
+        pushEndpoint(legacyCard.url, "JSONRPC");
       }
 
       // Bio-inspired: use adaptive transport ordering when we have stats
@@ -390,13 +438,108 @@ export class A2AClient {
   }
 
   /**
+   * Legacy v0.3 peers: raw JSON-RPC "message/send" with a v0.3-shaped
+   * message. Keeps real-world 0.3 deployments working under SDK 1.x.
+   */
+  private async sendViaLegacyJsonRpc(
+    peer: PeerConfig,
+    card: Record<string, unknown>,
+    message: Message,
+    requestOptions: { serviceParameters?: Record<string, string> },
+  ): Promise<OutboundSendResult> {
+    // Use the live fetch chain (auth-wrapped, mockable) — NOT the
+    // module-captured nativeFetch, which predates any globalThis.fetch
+    // stubbing in tests/embedders.
+    const doFetch = this.createFetch(peer);
+    const endpoint = String(card.url ?? "");
+    if (!endpoint) {
+      return { ok: false, statusCode: 500, response: { error: "Legacy Agent Card has no service url" } };
+    }
+
+    const extraMeta = (message.metadata ?? {}) as Record<string, unknown>;
+
+    const legacyParts = (message.parts ?? []).map((part) => {
+      const fileMeta: Record<string, unknown> = {
+        ...(part.filename ? { name: part.filename } : {}),
+        ...(part.mediaType ? { mimeType: part.mediaType } : {}),
+      };
+      const content = part.content;
+      if (!content) return { kind: "text", text: "" };
+      switch (content.$case) {
+        case "text":
+          return { kind: "text", text: content.value };
+        case "url":
+          return { kind: "file", file: { uri: content.value, ...fileMeta } };
+        case "raw": {
+          const bytes = Buffer.from(content.value).toString("base64");
+          return { kind: "file", file: { bytes, ...fileMeta } };
+        }
+        case "data":
+          return { kind: "data", data: content.value };
+        default:
+          return { kind: "text", text: "" };
+      }
+    });
+
+    const legacyMessage: Record<string, unknown> = {
+      kind: "message",
+      messageId: message.messageId,
+      role: message.role === Role.ROLE_AGENT ? "agent" : "user",
+      parts: legacyParts,
+      ...(message.contextId ? { contextId: message.contextId } : {}),
+      ...(message.taskId ? { taskId: message.taskId } : {}),
+      // Preserve the OpenClaw agentId routing extension for legacy peers,
+      // which expect it as a top-level message field.
+      ...(typeof extraMeta.agentId === "string" ? { agentId: extraMeta.agentId } : {}),
+    };
+
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    const serviceParams = requestOptions.serviceParameters ?? {};
+    if (serviceParams.authorization) headers.authorization = serviceParams.authorization;
+    if (serviceParams["x-api-key"]) headers["x-api-key"] = serviceParams["x-api-key"];
+
+    try {
+      const response = await doFetch(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: `legacy-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          method: LEGACY_METHOD_MESSAGE_SEND,
+          params: { message: legacyMessage },
+        }),
+      });
+
+      const payload = (await response.json().catch(() => undefined)) as
+        | { result?: unknown; error?: { code?: number; message?: string } }
+        | undefined;
+
+      if (!response.ok || !payload || payload.error) {
+        return {
+          ok: false,
+          statusCode: response.status || 500,
+          response: payload?.error ?? payload ?? { error: `legacy send failed (${response.status})` },
+        };
+      }
+
+      return { ok: true, statusCode: response.status, response: payload.result };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        statusCode: 500,
+        response: { error: error instanceof Error ? error.message : String(error) },
+      };
+    }
+  }
+
+  /**
    * Send via the SDK's ClientFactory (original single-transport path).
    */
   private async doSendViaFactory(
     factory: ClientFactory,
     baseUrl: string,
     path: string,
-    sendParams: MessageSendParams,
+    sendParams: SendMessageRequest,
     requestOptions: { serviceParameters?: Record<string, string> },
   ): Promise<OutboundSendResult> {
     try {
@@ -423,7 +566,7 @@ export class A2AClient {
   private async doSendViaTransport(
     peer: PeerConfig,
     endpoint: TransportEndpoint,
-    sendParams: MessageSendParams,
+    sendParams: SendMessageRequest,
     requestOptions: { serviceParameters?: Record<string, string> },
   ): Promise<OutboundSendResult> {
     const authFetch = this.createFetch(peer);

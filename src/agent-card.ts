@@ -1,25 +1,36 @@
-import type { AgentCard, AgentSkill } from "@a2a-js/sdk";
+import type { AgentCard, AgentSkill, SecurityScheme } from "@a2a-js/sdk";
 
 import type { GatewayConfig } from "./types.js";
 
 function toSkill(entry: string | { id?: string; name: string; description?: string }, index: number): AgentSkill {
-  if (typeof entry === "string") {
-    return {
-      id: `skill-${index + 1}`,
-      name: entry,
-      description: entry,
-      tags: [],
-    };
-  }
+  const base =
+    typeof entry === "string"
+      ? { id: `skill-${index + 1}`, name: entry, description: entry }
+      : {
+          id: entry.id || `skill-${index + 1}`,
+          name: entry.name,
+          description: entry.description || entry.name,
+        };
 
   return {
-    id: entry.id || `skill-${index + 1}`,
-    name: entry.name,
-    description: entry.description || entry.name,
+    id: base.id,
+    name: base.name,
+    description: base.description,
     tags: [],
+    examples: [],
+    inputModes: [],
+    outputModes: [],
+    securityRequirements: [],
   };
 }
 
+/**
+ * Build a v1 AgentCard.
+ *
+ * Dual-stack note (#95): the first supportedInterface is preferred by
+ * conforming clients. We advertise JSONRPC twice — v1.0 and v0.3 — so
+ * legacy peers can negotiate down without a second card fetch.
+ */
 export function buildAgentCard(config: GatewayConfig): AgentCard {
   const agentCard = config.agentCard || ({} as GatewayConfig["agentCard"]);
   const server = config.server || { host: "0.0.0.0", port: 18800 };
@@ -28,17 +39,22 @@ export function buildAgentCard(config: GatewayConfig): AgentCard {
   const useDerivedGrpcUrl = agentCard.grpcProxy === true;
   const fallbackHost = server.host === "0.0.0.0" ? "localhost" : server.host;
   const fallbackUrl = `http://${fallbackHost}:${server.port}/a2a/jsonrpc`;
+  const jsonRpcUrl = configuredUrl || fallbackUrl;
+  const restUrl = `${new URL(jsonRpcUrl).origin}/a2a/rest`;
 
   const securitySchemes: AgentCard["securitySchemes"] = {};
-  const security: AgentCard["security"] = [];
+  const securityRequirements: AgentCard["securityRequirements"] = [];
 
   const security_ = config.security || { inboundAuth: "none", token: "" };
   if (security_.inboundAuth === "bearer") {
-    securitySchemes["bearer"] = {
-      type: "http",
-      scheme: "bearer",
+    const scheme: SecurityScheme = {
+      scheme: {
+        $case: "httpAuthSecurityScheme",
+        value: { description: "", scheme: "Bearer", bearerFormat: "" },
+      },
     };
-    security.push({ bearer: [] });
+    securitySchemes["bearer"] = scheme;
+    securityRequirements.push({ schemes: { bearer: { list: [] } } });
   }
 
   const grpcPort = server.port + 1;
@@ -50,26 +66,27 @@ export function buildAgentCard(config: GatewayConfig): AgentCard {
     : `${grpcHost}:${grpcPort}`;
 
   return {
-    protocolVersion: "0.3.0",
-    version: "1.0.0",
     name: agentCard.name || "OpenClaw A2A Gateway",
     description: agentCard.description || "A2A bridge for OpenClaw agents",
-    url: configuredUrl || fallbackUrl,
-    skills: (agentCard.skills || []).map((entry, index) => toSkill(entry, index)),
+    version: "1.0.0",
+    supportedInterfaces: [
+      { url: jsonRpcUrl, protocolBinding: "JSONRPC", tenant: "", protocolVersion: "1.0" },
+      { url: jsonRpcUrl, protocolBinding: "JSONRPC", tenant: "", protocolVersion: "0.3" },
+      { url: restUrl, protocolBinding: "HTTP+JSON", tenant: "", protocolVersion: "1.0" },
+      { url: grpcProxy, protocolBinding: "GRPC", tenant: "", protocolVersion: "1.0" },
+    ],
+    provider: undefined,
+    documentationUrl: undefined,
     capabilities: {
       streaming: true,
       pushNotifications: false,
-      stateTransitionHistory: false,
+      extensions: [],
     },
     securitySchemes,
-    security,
-    supportsAuthenticatedExtendedCard: false,
+    securityRequirements,
     defaultInputModes: ["text"],
     defaultOutputModes: ["text"],
-    additionalInterfaces: [
-      { url: configuredUrl || fallbackUrl, transport: "JSONRPC" },
-      { url: `${new URL(configuredUrl || fallbackUrl).origin}/a2a/rest`, transport: "HTTP+JSON" },
-      { url: grpcProxy, transport: "GRPC" },
-    ],
+    skills: (agentCard.skills || []).map((entry, index) => toSkill(entry, index)),
+    signatures: [],
   };
 }

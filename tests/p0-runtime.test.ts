@@ -4,9 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 
-import type { Task } from "@a2a-js/sdk";
+import { TaskState } from "@a2a-js/sdk";
+import type { AgentExecutionEvent, Task } from "@a2a-js/sdk";
 import type { AgentExecutor, ExecutionEventBus } from "@a2a-js/sdk/server";
 
+import { textPart } from "../src/types-v1.js";
 import { QueueingAgentExecutor } from "../src/queueing-executor.js";
 import { FileTaskStore } from "../src/task-store.js";
 import { GatewayTelemetry } from "../src/telemetry.js";
@@ -55,20 +57,32 @@ function createEventBus() {
 
 function makeTask(taskId: string): Task {
   return {
-    kind: "task",
     id: taskId,
     contextId: `ctx-${taskId}`,
     status: {
-      state: "completed",
+      state: TaskState.TASK_STATE_COMPLETED,
       timestamp: new Date().toISOString(),
+      message: undefined,
     },
     artifacts: [
       {
         artifactId: `artifact-${taskId}`,
-        parts: [{ kind: "text", text: `done-${taskId}` }],
+        name: "",
+        description: "",
+        parts: [textPart(`done-${taskId}`)],
+        metadata: undefined,
+        extensions: [],
       },
     ],
+    history: [],
+    metadata: undefined,
   };
+}
+
+/** Unwrap a v1 execution event into its task payload (or undefined). */
+function taskPayload(event: unknown): Task | undefined {
+  const ev = event as AgentExecutionEvent;
+  return ev?.kind === "task" ? ev.data : undefined;
 }
 
 function makeRequestContext(taskId: string) {
@@ -97,7 +111,7 @@ describe("P0 runtime components", () => {
 
       assert.ok(restored, "task should be restored from disk");
       assert.equal(restored.id, "task-1");
-      assert.equal(restored.artifacts?.[0]?.parts?.[0]?.kind, "text");
+      assert.equal(restored.artifacts?.[0]?.parts?.[0]?.content?.$case, "text");
     } finally {
       await rm(tasksDir, { recursive: true, force: true });
     }
@@ -113,7 +127,7 @@ describe("P0 runtime components", () => {
     const delegate: AgentExecutor = {
       async execute(requestContext, eventBus) {
         await gates.get(requestContext.taskId)?.promise;
-        eventBus.publish(makeTask(requestContext.taskId));
+        eventBus.publish({ kind: "task", data: makeTask(requestContext.taskId) });
         eventBus.finished();
       },
       async cancelTask(_taskId, eventBus) {
@@ -136,8 +150,8 @@ describe("P0 runtime components", () => {
 
     await Promise.resolve();
 
-    assert.equal((bus2.events[0] as Task).status.state, "submitted");
-    assert.equal((bus3.events[0] as Task).status.state, "rejected");
+    assert.equal(taskPayload(bus2.events[0])?.status?.state, TaskState.TASK_STATE_SUBMITTED);
+    assert.equal(taskPayload(bus3.events[0])?.status?.state, TaskState.TASK_STATE_REJECTED);
     assert.equal(bus3.isFinished(), true);
 
     gates.get("task-1")?.resolve();
@@ -148,8 +162,8 @@ describe("P0 runtime components", () => {
     await p2;
     await p3;
 
-    assert.equal((bus1.events.at(-1) as Task).status.state, "completed");
-    assert.equal((bus2.events.at(-1) as Task).status.state, "completed");
+    assert.equal(taskPayload(bus1.events.at(-1))?.status?.state, TaskState.TASK_STATE_COMPLETED);
+    assert.equal(taskPayload(bus2.events.at(-1))?.status?.state, TaskState.TASK_STATE_COMPLETED);
 
     const snapshot = telemetry.snapshot();
     assert.equal(snapshot.tasks.started, 2);
@@ -157,5 +171,27 @@ describe("P0 runtime components", () => {
     assert.equal(snapshot.tasks.queue_rejections, 1);
     assert.equal(snapshot.tasks.rejected, 1);
     assert.equal(snapshot.tasks.queued, 1);
+  });
+
+  it("QueueingAgentExecutor closes a resource-owning delegate", () => {
+    const telemetry = new GatewayTelemetry(silentLogger(), { structuredLogs: false });
+    let closed = false;
+    const delegate: AgentExecutor & { close(): void } = {
+      async execute() {},
+      async cancelTask(_taskId, eventBus) {
+        eventBus.finished();
+      },
+      close() {
+        closed = true;
+      },
+    };
+
+    const executor = new QueueingAgentExecutor(delegate, telemetry, {
+      maxConcurrentTasks: 1,
+      maxQueuedTasks: 0,
+    });
+
+    executor.close();
+    assert.equal(closed, true);
   });
 });

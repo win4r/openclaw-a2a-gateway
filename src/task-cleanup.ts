@@ -1,10 +1,18 @@
+import { TaskState } from "@a2a-js/sdk";
+
 import type { FileTaskStore } from "./task-store.js";
 import type { GatewayTelemetry } from "./telemetry.js";
+import { taskStateName } from "./types-v1.js";
 
 type LoggerLike = { info: (msg: string) => void; warn: (msg: string) => void };
 
-/** Terminal states that are safe to expire. */
-const TERMINAL_STATES = new Set(["completed", "failed", "canceled", "rejected"]);
+/** Terminal states that are safe to expire (v1 enum values). */
+const TERMINAL_STATES = new Set<TaskState>([
+  TaskState.TASK_STATE_COMPLETED,
+  TaskState.TASK_STATE_FAILED,
+  TaskState.TASK_STATE_CANCELED,
+  TaskState.TASK_STATE_REJECTED,
+]);
 const ACTIVE_CLEANUPS = new WeakSet<FileTaskStore>();
 
 export interface CleanupResult {
@@ -56,13 +64,13 @@ export async function runTaskCleanup(
           continue;
         }
 
-        const { state } = task.status;
+        const state = task.status?.state ?? TaskState.TASK_STATE_UNSPECIFIED;
         if (!TERMINAL_STATES.has(state)) {
           result.skipped += 1;
           continue;
         }
 
-        const timestamp = task.status.timestamp;
+        const timestamp = task.status?.timestamp;
         if (!timestamp) {
           // No timestamp -> can't determine age -> skip
           result.skipped += 1;
@@ -81,7 +89,7 @@ export async function runTaskCleanup(
           continue;
         }
 
-        telemetry.recordTaskExpired(taskId, state);
+        telemetry.recordTaskExpired(taskId, taskStateName(state));
         result.expired += 1;
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
