@@ -5,13 +5,14 @@
  * 6 dimensions. Pure logic simulation — no Docker, no real network (except
  * localhost webhook for Dimension 3).
  *
- * Run: node --import tsx --test tests/benchmark.test.ts
+ * Run: npm run benchmark
  */
 
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import http from "node:http";
 import dns from "node:dns";
 
@@ -60,13 +61,7 @@ interface BenchmarkResult {
 }
 
 const results: BenchmarkResult[] = [];
-const OUTPUT_PATH = path.join(
-  process.env.HOME!,
-  "Desktop",
-  "A2A-仿生研究",
-  "研究文档",
-  "06-benchmark-results.md",
-);
+const OUTPUT_PATH = fileURLToPath(new URL("../BENCHMARK.md", import.meta.url));
 
 const noopLog = () => {};
 
@@ -778,7 +773,7 @@ after(() => {
     "# A2A Gateway Bio-Inspired Benchmark Results",
     "",
     `> Generated: ${now}`,
-    "> Run: `node --import tsx --test tests/benchmark.test.ts`",
+    "> Run: `npm run benchmark`",
     "",
     "## Summary",
     "",

@@ -664,7 +664,7 @@ skill/
 | 適応型トランスポート | ピアが複数のトランスポートを公開 | 自動（使用状況から学習） |
 | MM ソフト同時実行 | 高スループットのサブ秒オペレーション | `limits.saturation` |
 
-> Benchmark: `node --import tsx --test tests/benchmark.test.ts`
+> Benchmark: `npm run benchmark`
 
 ## バージョン履歴
 
